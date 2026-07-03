@@ -48,46 +48,40 @@ class AiMemoryClient:
             params["workspace"] = workspace
         if project:
             params["project"] = project
-        try:
-            r = self._request("GET", "/admin/search", params=params, timeout=SEARCH_TIMEOUT)
-            r.raise_for_status()
-            data = r.json()
-            return data.get("results", data.get("pages", []))
-        except Exception:
-            log.exception("search failed")
-            return []
+        r = self._request("GET", "/admin/search", params=params, timeout=SEARCH_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("results", data.get("pages", []))
 
     def write_page(
         self,
         path: str,
         body: str,
         tags: list[str] | None = None,
+        tier: str | None = None,
+        pinned: bool = False,
         workspace: str | None = None,
         project: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"path": path, "body": body}
         if tags:
             payload["tags"] = tags
+        if tier:
+            payload["tier"] = tier
+        if pinned:
+            payload["pinned"] = pinned
         if workspace:
             payload["workspace"] = workspace
         if project:
             payload["project"] = project
-        try:
-            r = self._request("POST", "/admin/write-page", json=payload, timeout=WRITE_TIMEOUT)
-            r.raise_for_status()
-            return r.json()
-        except Exception:
-            log.exception("write_page failed")
-            return {"ok": False, "error": "write failed"}
+        r = self._request("POST", "/admin/write-page", json=payload, timeout=WRITE_TIMEOUT)
+        r.raise_for_status()
+        return r.json()
 
     def status(self) -> dict[str, Any]:
-        try:
-            r = self._request("GET", "/admin/status", timeout=SEARCH_TIMEOUT)
-            r.raise_for_status()
-            return r.json()
-        except Exception:
-            log.exception("status failed")
-            return {"ok": False, "error": "status failed"}
+        r = self._request("GET", "/admin/status", timeout=SEARCH_TIMEOUT)
+        r.raise_for_status()
+        return r.json()
 
     def send_hook(
         self,
@@ -129,13 +123,9 @@ class AiMemoryClient:
             params["workspace"] = workspace
         if project:
             params["project"] = project
-        try:
-            r = self._request("GET", "/handoff", params=params, timeout=SEARCH_TIMEOUT)
-            if r.status_code == 404:
-                return None
-            r.raise_for_status()
-            data = r.json()
-            return data.get("handoff", {}).get("summary")
-        except Exception:
-            log.exception("fetch_handoff failed")
+        r = self._request("GET", "/handoff", params=params, timeout=SEARCH_TIMEOUT)
+        if r.status_code == 404:
             return None
+        r.raise_for_status()
+        data = r.json()
+        return data.get("handoff", {}).get("summary")
