@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import threading
+from typing import Any
+
+from client import AiMemoryClient
+from config import AiMemoryConfig, get_config_schema, load_config, save_config
+
+
+class AiMemoryProvider:
+    def __init__(
+        self,
+        client: AiMemoryClient | None = None,
+        config: AiMemoryConfig | None = None,
+    ) -> None:
+        self._config = config or AiMemoryConfig()
+        self._client = client or AiMemoryClient(self._config)
+        self._lock = threading.Lock()
+        self.session_id: str = ""
+        self._hermes_home: str = ""
+
+    @property
+    def name(self) -> str:
+        return "ai-memory"
+
+    def is_available(self) -> bool:
+        return bool(
+            self._config.server_url
+            or self._config.auth_token
+            or self._config.api_key
+        )
+
+    def initialize(self, session_id: str, **kwargs: Any) -> None:
+        self.session_id = session_id
+        hermes_home = kwargs.get("hermes_home", "")
+        self._hermes_home = hermes_home
+
+        with self._lock:
+            if hermes_home:
+                self._config = load_config(hermes_home)
+                self._client = AiMemoryClient(self._config)
+
+            server_url = kwargs.get("ai_memory_server_url", "")
+            if server_url:
+                self._config.server_url = server_url
+
+            auth_token = kwargs.get("ai_memory_auth_token", "")
+            if auth_token:
+                self._config.auth_token = auth_token
+
+            profile = kwargs.get("profile", "default")
+            self._config.project = f"hermes-{profile}"
+
+            self._client = AiMemoryClient(self._config)
+
+    def get_config_schema(self) -> list[dict[str, Any]]:
+        return get_config_schema()
+
+    def save_config(self, values: dict[str, Any], hermes_home: str) -> None:
+        save_config(values, hermes_home)
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "ai_memory_search",
+                "description": "Search the ai-memory wiki for relevant context",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "max_results": {"type": "integer", "default": 5},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "ai_memory_write",
+                "description": "Write a new page to the ai-memory wiki",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Wiki page path"},
+                        "body": {"type": "string", "description": "Markdown body"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["path", "body"],
+                },
+            },
+            {
+                "name": "ai_memory_status",
+                "description": "Check ai-memory server health",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ]
+
+    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> Any:
+        if tool_name == "ai_memory_search":
+            return self._search(args)
+        if tool_name == "ai_memory_write":
+            return self._write(args)
+        if tool_name == "ai_memory_status":
+            return self._status()
+        raise ValueError(f"Unknown tool: {tool_name}")
+
+    def system_prompt_block(self) -> str:
+        return "Long-term memory is backed by ai-memory wiki."
+
+    def prefetch(self, query: str, *, session_id: str = "") -> str | None:
+        results = self._search({"query": query, "max_results": 3})
+        if results.get("ok") and results.get("results"):
+            return "\n\n".join(r.get("snippet", "") for r in results["results"])
+        return None
+
+    def queue_prefetch(self, query: str) -> None:
+        threading.Thread(target=self.prefetch, args=(query,), daemon=True).start()
+
+    def sync_turn(self, user: str, assistant: str, *, session_id: str = "") -> None:
+        def _do() -> None:
+            try:
+                self._client.send_hook(
+                    event="user-prompt",
+                    session_id=session_id or self.session_id,
+                    payload={"user": user, "assistant": assistant},
+                    workspace=self._config.workspace,
+                    project=self._config.project,
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def on_session_end(self, messages: list[dict[str, Any]]) -> None:
+        def _do() -> None:
+            try:
+                self._client.send_hook(
+                    event="session-end",
+                    session_id=self.session_id,
+                    payload={"messages": messages},
+                    workspace=self._config.workspace,
+                    project=self._config.project,
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def on_memory_write(self, action: str, target: str, content: str) -> None:
+        if action in ("write", "append"):
+            self._client.write_page(
+                path=f"hermes-memory/{target}.md",
+                body=content,
+                tags=["hermes", "mirror"],
+                workspace=self._config.workspace,
+                project=self._config.project,
+            )
+
+    def shutdown(self) -> None:
+        pass
+
+    def _search(self, args: dict[str, Any]) -> dict[str, Any]:
+        query = args.get("query", "")
+        max_results = args.get("max_results", 5)
+        results = self._client.search(
+            query=query,
+            limit=max_results,
+            workspace=self._config.workspace,
+            project=self._config.project,
+        )
+        return {"ok": True, "results": results}
+
+    def _write(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self._client.write_page(
+            path=args.get("path", ""),
+            body=args.get("body", ""),
+            tags=args.get("tags"),
+            workspace=self._config.workspace,
+            project=self._config.project,
+        )
+        if not result.get("ok", True):
+            return result
+        return {"ok": True, "written": args.get("path")}
+
+    def _status(self) -> dict[str, Any]:
+        return self._client.status()
