@@ -8,38 +8,21 @@ A Hermes Agent memory provider plugin backed by ai-memory. Hermes agents get ai-
 
 Hermes Agent users get ai-memory's zero-friction lifecycle capture, Karpathy-style LLM wiki compilation, and cross-agent handoffs — all as a native Hermes plugin.
 
+## Current Milestone: v0.1.0 Core Plugin Implementation
+
+**Goal:** Ship a complete Hermes Agent memory provider plugin backed by ai-memory.
+
+**Target features:**
+- **Phase 1** — Config: AiMemoryConfig dataclass, schema, save/load
+- **Phase 2** — Client: AiMemoryClient HTTP wrapper with search/write/status/hook/handoff
+- **Phase 3** — Provider: AiMemoryProvider with all Hermes lifecycle hooks and tools
+- **Phase 4** — Entry point: __init__.py + plugin.yaml for Hermes plugin loader
+- **Phase 5** — CLI: hermes ai-memory status/config/link subcommands
+
 ## Shipped
 
-- Research complete: design spec approved (docs/superpowers/specs/2026-07-02-hermes-ai-memory-plugin-design.md)
-- Project scaffolded with GSD workflow
-
-### Phase 1: Config
-
-- `AiMemoryConfig` dataclass: `server_url`, `api_key`, `workspace`, `project`
-- `get_config_schema()` — field descriptors for `hermes memory setup`
-- `save_config(values, hermes_home)` — writes `$HERMES_HOME/ai-memory.json`
-- `load_config(hermes_home)` — reads JSON, falls back to env vars
-
-### Phase 2: Client
-
-- `AiMemoryClient` with typed methods: `search()`, `write_page()`, `status()`, `send_hook()`, `fetch_handoff()`
-- Bearer auth, timeout separation (500ms hooks, 10s admin)
-- Error handling: HTTP errors logged, not raised on hook paths
-
-### Phase 3: Provider
-
-- `AiMemoryProvider(MemoryProvider)` implementing all Hermes hooks
-- Thread safety, daemon threads for sync, tool schemas
-- `ai_memory_search`, `ai_memory_write`, `ai_memory_status` tools
-
-### Phase 4: Entry point
-
-- `__init__.py` with `register(ctx)` entry point
-- `plugin.yaml` declaring `httpx` dependency
-
-### Phase 5: CLI (optional)
-
-- `hermes ai-memory status` / `config` / `link` subcommands
+- Design research complete (docs/superpowers/specs/)
+- Project scaffolded with GSD workflow (ruff/mypy/pytest gates, 40 tests at 90% coverage)
 
 ## Requirements
 
@@ -50,11 +33,28 @@ Hermes Agent users get ai-memory's zero-friction lifecycle capture, Karpathy-sty
 
 ### Active
 
-- Phase 1: config.py + test_config.py
-- Phase 2: client.py + test_client.py
-- Phase 3: provider.py + test_provider.py
-- Phase 4: __init__.py + plugin.yaml
-- Phase 5: cli.py (optional)
+- [ ] **CFG-01**: AiMemoryConfig dataclass with server_url, api_key, auth_token, workspace, project
+- [ ] **CFG-02**: get_config_schema() returns field descriptors for hermes memory setup wizard
+- [ ] **CFG-03**: save_config() writes JSON to $HERMES_HOME/ai-memory.json
+- [ ] **CFG-04**: load_config() reads JSON, falls back to env vars
+- [ ] **CLI-01**: AiMemoryClient.search() sends GET /admin/search with auth and params
+- [ ] **CLI-02**: AiMemoryClient.write_page() sends POST /admin/write-page
+- [ ] **CLI-03**: AiMemoryClient.status() sends GET /admin/status
+- [ ] **CLI-04**: AiMemoryClient.send_hook() sends POST /hook with event/session_id
+- [ ] **CLI-05**: AiMemoryClient.fetch_handoff() sends GET /handoff
+- [ ] **CLI-06**: Client handles HTTP errors gracefully (logged, not raised on hooks)
+- [ ] **PRO-01**: AiMemoryProvider implements MemoryProvider ABC with all lifecycle hooks
+- [ ] **PRO-02**: get_tool_schemas() returns ai_memory_search/write/status tool defs
+- [ ] **PRO-03**: handle_tool_call() routes to correct client method
+- [ ] **PRO-04**: prefetch() calls client.search() and returns concatenated snippets
+- [ ] **PRO-05**: sync_turn() spawns daemon thread calling client.send_hook()
+- [ ] **PRO-06**: on_session_end() spawns daemon thread sending session-end event
+- [ ] **PRO-07**: initialize() resolves workspace/project from kwargs or config
+- [ ] **ENT-01**: __init__.py exposes register(ctx) entry point
+- [ ] **ENT-02**: plugin.yaml declares httpx dependency and on_session_end hook
+- [ ] **CLI-07**: hermes ai-memory status subcommand
+- [ ] **CLI-08**: hermes ai-memory config subcommand
+- [ ] **CLI-09**: hermes ai-memory link subcommand (symlink to $HERMES_HOME)
 
 ## Context
 
@@ -86,12 +86,21 @@ Hermes Agent users get ai-memory's zero-friction lifecycle capture, Karpathy-sty
 
 ## Evolution
 
+This document evolves at phase transitions and milestone boundaries.
+
 **After each phase transition** (via `/gsd-transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
 3. New requirements emerged? → Add to Active
 4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
 
 ---
 
-*Last updated: 2026-07-02 — Project scaffolded*
+*Last updated: 2026-07-02 — Milestone v0.1.0 started*
