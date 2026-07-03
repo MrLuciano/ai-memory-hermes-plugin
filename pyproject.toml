@@ -27,7 +27,7 @@ ignore = ["N999"]
 python_version = "3.10"
 strict = true
 ignore_missing_imports = true
-exclude = ["plugins/"]
+exclude = ["ai-memory"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

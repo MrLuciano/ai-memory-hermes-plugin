@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -34,6 +33,7 @@ def test_get_config_schema() -> None:
     schema = get_config_schema()
     keys = {item["key"] for item in schema}
     assert "server_url" in keys
+    assert "api_key" in keys
     assert "auth_token" in keys
     assert "workspace" in keys
     assert "project" in keys
@@ -72,18 +72,12 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     assert cfg.project == "file-proj"
 
 
-def test_load_config_file_not_found(tmp_path: Path) -> None:
-    old_url = os.environ.pop("AI_MEMORY_SERVER_URL", None)
-    old_token = os.environ.pop("AI_MEMORY_AUTH_TOKEN", None)
-    try:
-        cfg = load_config(str(tmp_path))
-        assert cfg.server_url == "http://127.0.0.1:49374"
-        assert cfg.auth_token == ""
-    finally:
-        if old_url is not None:
-            os.environ["AI_MEMORY_SERVER_URL"] = old_url
-        if old_token is not None:
-            os.environ["AI_MEMORY_AUTH_TOKEN"] = old_token
+def test_load_config_file_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
+    cfg = load_config(str(tmp_path))
+    assert cfg.server_url == "http://127.0.0.1:49374"
+    assert cfg.auth_token == ""
 
 
 def test_save_config_creates_parent_dirs(tmp_path: Path) -> None:
@@ -98,3 +92,44 @@ def test_load_config_falls_back_to_env(tmp_path: Path, monkeypatch: pytest.Monke
     cfg = load_config(str(tmp_path))
     assert cfg.server_url == "http://env:49374"
     assert cfg.auth_token == "env-token"
+
+
+def test_config_roundtrip(tmp_path: Path) -> None:
+    values = {
+        "server_url": "http://roundtrip:49374",
+        "auth_token": "roundtrip-token",
+        "workspace": "roundtrip-ws",
+        "project": "roundtrip-proj",
+    }
+    save_config(values, str(tmp_path))
+    cfg = load_config(str(tmp_path))
+    assert cfg.server_url == "http://roundtrip:49374"
+    assert cfg.auth_token == "roundtrip-token"
+    assert cfg.workspace == "roundtrip-ws"
+    assert cfg.project == "roundtrip-proj"
+
+
+def test_load_config_corrupt_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
+    p = tmp_path / "ai-memory.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("not valid json")
+    cfg = load_config(str(tmp_path))
+    assert cfg.server_url == "http://127.0.0.1:49374"
+    assert cfg.auth_token == ""
+
+
+def test_load_config_filters_extra_keys(tmp_path: Path) -> None:
+    p = tmp_path / "ai-memory.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "server_url": "http://extra:49374",
+        "auth_token": "extra-token",
+        "unknown_key": "should be ignored",
+    }))
+    cfg = load_config(str(tmp_path))
+    assert cfg.server_url == "http://extra:49374"
+    assert not hasattr(cfg, "unknown_key")

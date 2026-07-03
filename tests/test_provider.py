@@ -4,9 +4,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from config import AiMemoryConfig
 from provider import AiMemoryProvider
+
 
 @pytest.fixture
 def provider() -> AiMemoryProvider:

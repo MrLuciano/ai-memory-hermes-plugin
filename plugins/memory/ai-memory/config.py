@@ -27,6 +27,13 @@ def get_config_schema() -> list[dict[str, Any]]:
             "required": False,
         },
         {
+            "key": "api_key",
+            "description": "ai-memory API key (optional for local mode)",
+            "secret": True,
+            "required": False,
+            "env_var": "AI_MEMORY_API_KEY",
+        },
+        {
             "key": "auth_token",
             "description": "ai-memory auth token (optional for local mode)",
             "secret": True,
