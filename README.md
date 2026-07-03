@@ -1,6 +1,6 @@
 # ai-memory Hermes Memory Provider Plugin
 
-Connects [Hermes Agent](https://hermes-agent.nousresearch.com) to [ai-memory](https://github.com/akitaonrails/ai-memory) as a first-class memory provider.
+Connects [Hermes Agent](https://github.com/NousResearch/hermes-agent) to [ai-memory](https://github.com/akitaonrails/ai-memory) as a first-class memory provider.
 
 ## Quick Start
 
