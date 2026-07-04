@@ -32,7 +32,7 @@ Strict sequential chain — each phase builds on the prior. No parallelization.
 - [x] **Phase 1: Config** — AiMemoryConfig dataclass, `get_config_schema()`, `save_config()`, `load_config()` with env var fallback
 - [x] **Phase 2: Client** — AiMemoryClient HTTP wrapper for search, write, status, hook, handoff with differentiated timeout/error handling
 - [x] **Phase 3: Provider** — AiMemoryProvider implementing Hermes `MemoryProvider` ABC with lifecycle hooks and tool routing
-- [ ] **Phase 4: Entry Point** — `__init__.py` + `plugin.yaml` for Hermes plugin loader discovery
+- [x] **Phase 4: Entry Point** — `__init__.py` + `plugin.yaml` for Hermes plugin loader discovery
 - [ ] **Phase 5: CLI** — `hermes ai-memory status/config/link` subcommands
 
 ## Phase Details
@@ -102,7 +102,7 @@ Strict sequential chain — each phase builds on the prior. No parallelization.
 **Risk note:** Resolved. The `register(ctx)` API was verified against real Hermes plugin loader source (`plugins/memory/__init__.py` and `plugins/memory/mem0/__init__.py`). The API uses `ctx.register_memory_provider()`, not `ctx.agent.memory_provider`. Plan follows the real API.
 
 Plans:
-- [ ] **04-01-PLAN.md** — Fix `__init__.py` register() + create test_entry.py + verify plugin.yaml
+- [x] **04-01-PLAN.md** — Fix `__init__.py` register() + create test_entry.py + verify plugin.yaml
 
 ### Phase 5: CLI
 **Goal:** Users can inspect and manage the plugin via `hermes ai-memory` CLI subcommands without editing files manually.
