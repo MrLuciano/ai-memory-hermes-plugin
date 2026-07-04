@@ -92,14 +92,17 @@ Strict sequential chain — each phase builds on the prior. No parallelization.
 **Requirements:** ENT-01, ENT-02, ENT-03
 **Success Criteria** (what must be TRUE):
 1. `from plugins.memory.ai_memory import register` succeeds without import errors
-2. `register(ctx)` instantiates `AiMemoryProvider` and assigns it to `ctx.agent.memory_provider`
+2. `register(ctx)` instantiates `AiMemoryProvider` and calls `ctx.register_memory_provider(instance)` per Hermes plugin loader convention
 3. `plugin.yaml` declares the `httpx` runtime dependency and the `on_session_end` hook registration
 4. Plugin loads without errors via `hermes plugins enable ai-memory` (tested with mock ctx)
 5. `hermes memory setup` wizard displays the config fields returned by `get_config_schema()`
 **Existing tests:** 0 (new — `test_entry.py` needed)
-**New tests required:** 3–5 tests: `register()` wiring, `plugin.yaml` parse validation, plugin lifecycle with mock Hermes context
-**Plans:** TBD
-**Risk note:** Second-highest risk. The `register(ctx)` API shape and `ctx.agent.memory_provider` attribute path depend on Hermes loader conventions not yet validated. Mitigated by inspecting Hermes plugin examples and existing plugins during Phase 3.
+**New tests required:** 7 tests: `register()` callable + return type + ctx wiring + AiMemoryProvider instance check + yaml httpx dep + yaml hooks + config schema
+**Plans:** 1 plan (2 tasks: TDD RED→GREEN)
+**Risk note:** Resolved. The `register(ctx)` API was verified against real Hermes plugin loader source (`plugins/memory/__init__.py` and `plugins/memory/mem0/__init__.py`). The API uses `ctx.register_memory_provider()`, not `ctx.agent.memory_provider`. Plan follows the real API.
+
+Plans:
+- [ ] **04-01-PLAN.md** — Fix `__init__.py` register() + create test_entry.py + verify plugin.yaml
 
 ### Phase 5: CLI
 **Goal:** Users can inspect and manage the plugin via `hermes ai-memory` CLI subcommands without editing files manually.

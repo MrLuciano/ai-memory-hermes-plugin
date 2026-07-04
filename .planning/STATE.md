@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v0.1.0
 milestone_name: milestone
 status: completed
-last_updated: "2026-07-04T00:14:59.622Z"
+last_updated: "2026-07-04T00:16:00.000Z"
 ---
 
 # Project State
@@ -17,9 +17,9 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 3 — COMPLETE
-Plan: 4 of 4 (all tasks done)
-Status: Phase 3 complete — ready for Phase 4
+Phase: 4 — PLANNING COMPLETE
+Plan: 1 plan (2 tasks: TDD RED → GREEN)
+Status: Ready for execution — `/gsd-execute-phase 4`
 
 ## Milestone Plan
 
@@ -28,14 +28,14 @@ Status: Phase 3 complete — ready for Phase 4
 | 1 | Config | AiMemoryConfig dataclass, schema, save/load with env fallback | CFG-01–04 | Complete |
 | 2 | Client | AiMemoryClient HTTP wrapper (search, write, status, hook, handoff) | CLI-01–08 | Complete |
 | 3 | Provider | AiMemoryProvider implementing MemoryProvider ABC | PRO-01–09 | Complete |
-| 4 | Entry Point | \_\_init\_\_.py + plugin.yaml for Hermes loader | ENT-01–03 | Not started |
+| 4 | Entry Point | \_\_init\_\_.py + plugin.yaml for Hermes loader | ENT-01–03 | Planning complete |
 | 5 | CLI | hermes ai-memory status/config/link subcommands | CLI-09–11 | Not started |
 
 ## Quality Gates
 
 - `ruff check .` (clean)
 - `mypy .` (success — exclude = ["ai-memory"])
-- `pytest --cov` (fail_under 89 — 57 tests at 92.72%)
+- `pytest --cov` (fail_under 89 — 57 tests at 89.91%)
 
 ## Accumulated Context
 
@@ -52,6 +52,7 @@ Status: Phase 3 complete — ready for Phase 4
 | RD-07 | Added `tier`/`pinned` params to `write_page()` (Phase 2) | ai-memory API supports these; enables setting page tier on creation |
 | RD-08 | Conditional ABC import with fallback (Phase 3) | Hermes not available at test time; try/except ImportError with abc.ABC |
 | RD-09 | handle_tool_call returns JSON string (Phase 3) | MemoryProvider ABC expects str return type |
+| RD-10 | register(ctx) uses ctx.register_memory_provider() not ctx.agent.memory_property (Phase 4) | Real Hermes plugin loader uses _ProviderCollector pattern. Verified against hermes-agent plugins/memory/__init__.py |
 
 ### Completed (Phase 1)
 
@@ -84,11 +85,11 @@ Status: Phase 3 complete — ready for Phase 4
 
 ### Open Items
 
-- [ ] Write test_entry.py for Phase 4 entry point tests
+- [ ] Write test_entry.py for Phase 4 entry point tests (✓ planned — Task 1)
 - [ ] Write test_cli.py for Phase 5 CLI tests
 
 ## Session
 
-**Last session:** 2026-07-03 — Phase 3 complete
+**Last session:** 2026-07-03 — Phase 4 planned
 **Resume with:** Phase 4 — Entry Point implementation
-**Next phase:** Phase 4 — Entry Point
+**Next step:** Execute `/gsd-execute-phase 4` with a fresh context window
