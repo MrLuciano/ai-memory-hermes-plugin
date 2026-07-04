@@ -114,8 +114,12 @@ Plans:
 3. `hermes ai-memory link` creates a symlink from the plugin directory into `$HERMES_HOME/plugins/ai-memory`
 4. All subcommands show helpful error messages when the ai-memory server is unreachable or config is missing
 **Existing tests:** 0 (new — `test_cli.py` needed)
-**New tests required:** 4–6 tests: subcommand argument parsing, output formatting, error cases for missing config/unreachable server
-**Plans:** TBD
+**New tests required:** 7 tests: subcommand handlers (status/config/link), error paths, register_cli() discovery
+**Plans:** 1 plan (2 tasks: TDD RED→GREEN)
+**Risk note:** Resolved. Hermes CLI plugin API verified against official Hermes docs. Memory provider plugins use the `register_cli(subparser)` convention in `cli.py` — auto-discovered by the plugin loader. No `__init__.py` changes needed.
+
+Plans:
+- [ ] **05-01-PLAN.md** — TDD: test_cli.py (RED) → cli.py status/config/link (GREEN)
 
 ## Risks
 
