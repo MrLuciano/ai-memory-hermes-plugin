@@ -106,7 +106,6 @@ def test_client_send_hook_does_not_raise(client: AiMemoryClient) -> None:
 
     client._transport = httpx.MockTransport(handler)
     client.send_hook("user-prompt", "test-session")
-    assert True
 
 
 def test_client_fetch_handoff_returns_summary(client: AiMemoryClient) -> None:
@@ -177,6 +176,15 @@ def test_client_send_hook_uses_hook_timeout(client: AiMemoryClient) -> None:
     client._request.assert_called_once_with(
         "POST", "/hook", params=ANY, json=ANY, timeout=HOOK_TIMEOUT
     )
+
+
+def test_client_search_handles_non_dict_response(client: AiMemoryClient) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["not", "a", "dict"])
+
+    client._transport = httpx.MockTransport(handler)
+    results = client.search("test query")
+    assert results == []
 
 
 def test_client_write_page_with_tier_and_pinned(client: AiMemoryClient) -> None:

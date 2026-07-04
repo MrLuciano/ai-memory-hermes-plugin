@@ -172,7 +172,8 @@ def test_on_memory_write_skips_other_actions(provider: AiMemoryProvider) -> None
 def test_queue_prefetch(provider: AiMemoryProvider) -> None:
     provider.prefetch = MagicMock()
     provider.queue_prefetch("test query")
-    assert True
+    time.sleep(0.05)
+    provider.prefetch.assert_called_once_with("test query")
 
 
 def test_initialize_resolves_workspace_from_kwargs(provider: AiMemoryProvider) -> None:

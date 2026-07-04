@@ -8,6 +8,9 @@ from typing import Any
 import httpx
 import pytest
 
+# Plugin is loaded as a standalone module (not a package) by Hermes,
+# so tests import sibling modules via bare names + sys.path to match
+# the production loading model exactly.
 sys.path.insert(
     0,
     str(Path(__file__).parent.parent / "plugins/memory/ai-memory"),

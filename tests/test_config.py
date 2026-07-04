@@ -126,6 +126,20 @@ def test_load_config_corrupt_json(
     assert cfg.auth_token == ""
 
 
+def test_load_config_env_overrides_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = tmp_path / "ai-memory.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "server_url": "http://file:49374",
+        "auth_token": "file-token",
+    }))
+    monkeypatch.setenv("AI_MEMORY_SERVER_URL", "http://env:49374")
+    monkeypatch.setenv("AI_MEMORY_AUTH_TOKEN", "env-token")
+    cfg = load_config(str(tmp_path))
+    assert cfg.server_url == "http://env:49374"
+    assert cfg.auth_token == "env-token"
+
+
 def test_load_config_filters_extra_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
     monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)

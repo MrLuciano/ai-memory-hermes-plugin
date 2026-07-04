@@ -49,6 +49,9 @@ class AiMemoryClient:
         r = self._request("GET", "/admin/search", params=params, timeout=SEARCH_TIMEOUT)
         r.raise_for_status()
         data = r.json()
+        if not isinstance(data, dict):
+            log.warning("search response is not a dict: %s", type(data).__name__)
+            return []
         return data.get("results", data.get("pages", []))
 
     def write_page(

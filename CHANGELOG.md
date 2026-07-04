@@ -51,7 +51,7 @@
   - `cmd_link` — symlink plugin into Hermes profile
   - Uses `AiMemoryClient` directly (no provider dependency)
 
-- **Code Review Fixes** (2026-07-03):
+- **Code Review Fixes — Round 1** (2026-07-03):
   - `is_available()` — fixed tautology (was `return True`)
   - Production import loading via `sys.path.insert` in `__init__.py`
   - Unified config precedence: env > file > defaults
@@ -65,10 +65,21 @@
   - `kwargs.pop` → `.get` pattern
   - Test assertions for `send_hook` call chain
 
+- **Code Review Fixes — Round 2** (2026-07-03):
+  - Added `__all__ = ["register"]` to `__init__.py`
+  - Documented `sys.path.insert` rationale in both `__init__.py` and `conftest.py`
+  - `_write()` now defaults `ok` to `False` instead of `True`
+  - `on_memory_write` now logs exception via `log.warning` instead of silent pass
+  - `search()` handles non-dict API response gracefully
+  - `test_queue_prefetch` verifies `prefetch` is actually called
+  - Removed no-op `assert True` from hook error test
+  - Added test for env-over-file config precedence
+  - Added test for non-dict search response
+
 ### Technical
 
-- 74 tests across 5 test files
-- 94.13% test coverage
+- 76 tests across 5 test files
+- 94%+ test coverage
 - ruff clean (0 errors)
 - mypy clean (0 issues, with documented `ai-memory` exclusion)
 - Python 3.10+ with `from __future__ import annotations`
