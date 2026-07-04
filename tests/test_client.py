@@ -140,7 +140,7 @@ def test_client_fetch_handoff_raises_on_500(client: AiMemoryClient) -> None:
 
 def test_client_no_auth_header_when_no_token() -> None:
     client = AiMemoryClient(AiMemoryConfig(server_url="http://localhost:49374"))
-    assert "Authorization" not in client._headers
+    assert "authorization" not in client._client.headers
 
 
 def test_client_search_passes_workspace_project(client: AiMemoryClient) -> None:

@@ -33,11 +33,7 @@ class AiMemoryProvider(MemoryProvider):
         return "ai-memory"
 
     def is_available(self) -> bool:
-        return bool(
-            self._config.server_url
-            or self._config.auth_token
-            or self._config.api_key
-        )
+        return bool(self._config.auth_token or self._config.api_key)
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         self.session_id = session_id
@@ -132,14 +128,18 @@ class AiMemoryProvider(MemoryProvider):
         threading.Thread(target=self.prefetch, args=(query,), daemon=True).start()
 
     def sync_turn(self, user: str, assistant: str, *, session_id: str = "", **kwargs: Any) -> None:
+        sid = session_id or self.session_id
+        ws = self._config.workspace
+        proj = self._config.project
+
         def _do() -> None:
             try:
                 self._client.send_hook(
                     event="user-prompt",
-                    session_id=session_id or self.session_id,
+                    session_id=sid,
                     payload={"user": user, "assistant": assistant},
-                    workspace=self._config.workspace,
-                    project=self._config.project,
+                    workspace=ws,
+                    project=proj,
                 )
             except Exception:
                 pass
@@ -147,14 +147,18 @@ class AiMemoryProvider(MemoryProvider):
         threading.Thread(target=_do, daemon=True).start()
 
     def on_session_end(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
+        sid = self.session_id
+        ws = self._config.workspace
+        proj = self._config.project
+
         def _do() -> None:
             try:
                 self._client.send_hook(
                     event="session-end",
-                    session_id=self.session_id,
+                    session_id=sid,
                     payload={"messages": messages},
-                    workspace=self._config.workspace,
-                    project=self._config.project,
+                    workspace=ws,
+                    project=proj,
                 )
             except Exception:
                 pass
@@ -165,13 +169,16 @@ class AiMemoryProvider(MemoryProvider):
         self, action: str, target: str, content: str, metadata: dict[str, Any] | None = None
     ) -> None:
         if action in ("write", "append"):
-            self._client.write_page(
-                path=f"hermes-memory/{target}.md",
-                body=content,
-                tags=["hermes", "mirror"],
-                workspace=self._config.workspace,
-                project=self._config.project,
-            )
+            try:
+                self._client.write_page(
+                    path=f"hermes-memory/{target}.md",
+                    body=content,
+                    tags=["hermes", "mirror"],
+                    workspace=self._config.workspace,
+                    project=self._config.project,
+                )
+            except Exception:
+                pass
 
     def shutdown(self) -> None:
         pass

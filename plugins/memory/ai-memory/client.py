@@ -17,24 +17,22 @@ class AiMemoryClient:
     def __init__(self, config: AiMemoryConfig) -> None:
         self.config = config
         self._base = config.server_url.rstrip("/")
-        self._headers: dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {"Content-Type": "application/json"}
         token = config.auth_token or config.api_key
         if token:
-            self._headers["Authorization"] = f"Bearer {token}"
+            headers["Authorization"] = f"Bearer {token}"
         self._transport: Any = None
+        self._client = httpx.Client(headers=headers)
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         url = f"{self._base}{path}"
-        headers = {**self._headers, **kwargs.pop("headers", {})}
-        if self._transport:
-            with httpx.Client(
-                transport=self._transport,
-                timeout=kwargs.pop("timeout", SEARCH_TIMEOUT),
-            ) as c:
-                return c.request(method, url, headers=headers, **kwargs)
+        extra_headers = kwargs.pop("headers", {})
+        headers = {**self._client.headers, **extra_headers}
         timeout = kwargs.pop("timeout", SEARCH_TIMEOUT)
-        with httpx.Client(timeout=timeout) as c:
-            return c.request(method, url, headers=headers, **kwargs)
+        if self._transport:
+            with httpx.Client(transport=self._transport, timeout=timeout) as c:
+                return c.request(method, url, headers=headers, **kwargs)
+        return self._client.request(method, url, headers=headers, timeout=timeout, **kwargs)
 
     def search(
         self,

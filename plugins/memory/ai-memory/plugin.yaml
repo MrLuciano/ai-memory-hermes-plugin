@@ -1,7 +1,10 @@
 name: ai-memory
 version: 0.1.0
 description: "ai-memory wiki-backed long-term memory provider"
+entry_point: __init__.py
 pip_dependencies:
   - httpx
 hooks:
   - on_session_end
+  - sync_turn
+  - on_memory_write

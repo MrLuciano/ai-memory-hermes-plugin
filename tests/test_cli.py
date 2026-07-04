@@ -25,10 +25,8 @@ def test_cmd_status_reachable(capsys: pytest.CaptureFixture[str], tmp_path: Path
 
     mock_client = MagicMock()
     mock_client.status.return_value = {"ok": True, "pages": 10, "sessions": 5}
-    mock_provider = MagicMock()
-    mock_provider._client = mock_client
 
-    with patch("cli.AiMemoryProvider", return_value=mock_provider):
+    with patch("cli.AiMemoryClient", return_value=mock_client):
         args = argparse.Namespace(hermes_home=str(tmp_path))
         cmd_status(args)
 
@@ -41,10 +39,8 @@ def test_cmd_status_unreachable(capsys: pytest.CaptureFixture[str], tmp_path: Pa
 
     mock_client = MagicMock()
     mock_client.status.side_effect = ConnectionError("Server refused connection")
-    mock_provider = MagicMock()
-    mock_provider._client = mock_client
 
-    with patch("cli.AiMemoryProvider", return_value=mock_provider):
+    with patch("cli.AiMemoryClient", return_value=mock_client):
         args = argparse.Namespace(hermes_home=str(tmp_path))
         cmd_status(args)
 
@@ -52,9 +48,13 @@ def test_cmd_status_unreachable(capsys: pytest.CaptureFixture[str], tmp_path: Pa
     assert "unreachable" in captured.out.lower() or "error" in captured.out.lower()
 
 
-def test_cmd_config_shows_values(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+def test_cmd_config_shows_values(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from cli import cmd_config
 
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
     config_dir = tmp_path / ".hermes"
     config_dir.mkdir(parents=True)
     config_file = config_dir / "ai-memory.json"

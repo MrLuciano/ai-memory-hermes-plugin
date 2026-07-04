@@ -75,11 +75,19 @@ def load_config(hermes_home: str) -> AiMemoryConfig:
     if p.exists():
         try:
             overrides = json.loads(p.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             pass
 
-    overrides.setdefault("server_url", os.environ.get("AI_MEMORY_SERVER_URL", DEFAULT_SERVER_URL))
-    overrides.setdefault("auth_token", os.environ.get("AI_MEMORY_AUTH_TOKEN", ""))
-    overrides.setdefault("api_key", os.environ.get("AI_MEMORY_API_KEY", ""))
+    env_map: dict[str, str] = {
+        "AI_MEMORY_SERVER_URL": "server_url",
+        "AI_MEMORY_AUTH_TOKEN": "auth_token",
+        "AI_MEMORY_API_KEY": "api_key",
+    }
+    for env_key, attr in env_map.items():
+        val = os.environ.get(env_key)
+        if val:
+            overrides[attr] = val
+
+    overrides.setdefault("server_url", DEFAULT_SERVER_URL)
 
     return AiMemoryConfig(**{k: v for k, v in overrides.items() if hasattr(AiMemoryConfig, k)})

@@ -4,8 +4,8 @@ import argparse
 import os
 from pathlib import Path
 
+from client import AiMemoryClient
 from config import load_config
-from provider import AiMemoryProvider
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 
@@ -23,9 +23,9 @@ def register_cli(subparsers: argparse._SubParsersAction) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     config = load_config(args.hermes_home)
-    provider = AiMemoryProvider(config=config)
+    client = AiMemoryClient(config)
     try:
-        result = provider._client.status()
+        result = client.status()
         print("ai-memory server: reachable")
         print(f"  Pages:    {result.get('pages', '?')}")
         print(f"  Sessions: {result.get('sessions', '?')}")
@@ -47,8 +47,11 @@ def cmd_link(args: argparse.Namespace) -> None:
     target_dir = Path(args.hermes_home) / "plugins" / "ai-memory"
     target_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    if os.path.islink(str(target_dir)) or target_dir.exists():
-        print(f"Already linked: {target_dir} -> {PLUGIN_DIR}")
+    if target_dir.exists():
+        if os.path.islink(str(target_dir)):
+            print(f"Already linked: {target_dir} -> {PLUGIN_DIR}")
+        else:
+            print(f"Target exists but is not a symlink: {target_dir}")
         return
 
     try:

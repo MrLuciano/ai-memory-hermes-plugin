@@ -56,7 +56,9 @@ def test_save_config_merges_existing(tmp_path: Path) -> None:
     assert data["server_url"] == "http://test:49374"
 
 
-def test_load_config_from_file(tmp_path: Path) -> None:
+def test_load_config_from_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
     p = tmp_path / "ai-memory.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({
@@ -94,7 +96,9 @@ def test_load_config_falls_back_to_env(tmp_path: Path, monkeypatch: pytest.Monke
     assert cfg.auth_token == "env-token"
 
 
-def test_config_roundtrip(tmp_path: Path) -> None:
+def test_config_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
     values = {
         "server_url": "http://roundtrip:49374",
         "auth_token": "roundtrip-token",
@@ -122,7 +126,9 @@ def test_load_config_corrupt_json(
     assert cfg.auth_token == ""
 
 
-def test_load_config_filters_extra_keys(tmp_path: Path) -> None:
+def test_load_config_filters_extra_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
     p = tmp_path / "ai-memory.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({

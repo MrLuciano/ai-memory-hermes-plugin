@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,7 +31,7 @@ def test_is_available_with_token(provider: AiMemoryProvider) -> None:
 
 def test_is_available_without_token() -> None:
     p = AiMemoryProvider(config=AiMemoryConfig())
-    assert p.is_available() is True
+    assert p.is_available() is False
 
 
 def test_initialize_sets_session_id(provider: AiMemoryProvider) -> None:
@@ -123,7 +124,8 @@ def test_prefetch_returns_empty_on_no_results(provider: AiMemoryProvider) -> Non
 def test_sync_turn_spawns_daemon(provider: AiMemoryProvider) -> None:
     provider._client.send_hook = MagicMock()
     provider.sync_turn("user msg", "assistant msg", session_id="sess-1")
-    assert True
+    time.sleep(0.05)
+    provider._client.send_hook.assert_called_once()
 
 
 def test_sync_turn_absorbs_extra_kwargs(provider: AiMemoryProvider) -> None:
@@ -131,19 +133,22 @@ def test_sync_turn_absorbs_extra_kwargs(provider: AiMemoryProvider) -> None:
     provider.sync_turn(
         "user msg", "assistant msg", session_id="sess-1", context="extra", extra_key="val"
     )
-    assert True
+    time.sleep(0.05)
+    provider._client.send_hook.assert_called_once()
 
 
 def test_on_session_end_spawns_daemon(provider: AiMemoryProvider) -> None:
     provider._client.send_hook = MagicMock()
     provider.on_session_end([{"role": "user", "content": "hello"}])
-    assert True
+    time.sleep(0.05)
+    provider._client.send_hook.assert_called_once()
 
 
 def test_on_session_end_absorbs_extra_kwargs(provider: AiMemoryProvider) -> None:
     provider._client.send_hook = MagicMock()
     provider.on_session_end([{"role": "user", "content": "hello"}], extra_key="val")
-    assert True
+    time.sleep(0.05)
+    provider._client.send_hook.assert_called_once()
 
 
 def test_on_memory_write_calls_client(provider: AiMemoryProvider) -> None:
