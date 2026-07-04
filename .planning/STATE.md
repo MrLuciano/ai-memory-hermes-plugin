@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.1.0
-milestone_name: Core Plugin Implementation
-status: phase_2_complete
-last_updated: "2026-07-03T02:59:32.307Z"
+milestone_name: milestone
+status: completed
+last_updated: "2026-07-04T00:14:59.622Z"
 ---
 
 # Project State
@@ -13,13 +13,13 @@ last_updated: "2026-07-03T02:59:32.307Z"
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Hermes Agent users get ai-memory's zero-friction lifecycle capture, Karpathy-style LLM wiki compilation, and cross-agent handoffs — all as a native Hermes plugin.
-**Current focus:** Phase 3 — Provider
+**Current focus:** Phase 4 — Entry Point
 
 ## Current Position
 
-Phase: 2 — COMPLETE
+Phase: 3 — COMPLETE
 Plan: 4 of 4 (all tasks done)
-Status: Phase 2 complete — ready for Phase 3
+Status: Phase 3 complete — ready for Phase 4
 
 ## Milestone Plan
 
@@ -27,7 +27,7 @@ Status: Phase 2 complete — ready for Phase 3
 |-------|------|-------------|------|--------|
 | 1 | Config | AiMemoryConfig dataclass, schema, save/load with env fallback | CFG-01–04 | Complete |
 | 2 | Client | AiMemoryClient HTTP wrapper (search, write, status, hook, handoff) | CLI-01–08 | Complete |
-| 3 | Provider | AiMemoryProvider implementing MemoryProvider ABC | PRO-01–09 | Not started |
+| 3 | Provider | AiMemoryProvider implementing MemoryProvider ABC | PRO-01–09 | Complete |
 | 4 | Entry Point | \_\_init\_\_.py + plugin.yaml for Hermes loader | ENT-01–03 | Not started |
 | 5 | CLI | hermes ai-memory status/config/link subcommands | CLI-09–11 | Not started |
 
@@ -35,7 +35,7 @@ Status: Phase 2 complete — ready for Phase 3
 
 - `ruff check .` (clean)
 - `mypy .` (success — exclude = ["ai-memory"])
-- `pytest --cov` (fail_under 89 — 47 tests at 92.03%)
+- `pytest --cov` (fail_under 89 — 57 tests at 92.72%)
 
 ## Accumulated Context
 
@@ -50,6 +50,8 @@ Status: Phase 2 complete — ready for Phase 3
 | RD-05 | Added `api_key` to `get_config_schema()` (Phase 1) | Dataclass had api_key but schema was missing it; now consistent |
 | RD-06 | Admin methods propagate errors, hooks swallow (Phase 2) | CLI-07/08: tool paths need error visibility, hook paths need graceful degradation |
 | RD-07 | Added `tier`/`pinned` params to `write_page()` (Phase 2) | ai-memory API supports these; enables setting page tier on creation |
+| RD-08 | Conditional ABC import with fallback (Phase 3) | Hermes not available at test time; try/except ImportError with abc.ABC |
+| RD-09 | handle_tool_call returns JSON string (Phase 3) | MemoryProvider ABC expects str return type |
 
 ### Completed (Phase 1)
 
@@ -68,14 +70,25 @@ Status: Phase 2 complete — ready for Phase 3
 - [x] Add tier/pinned params to write_page() — CLI-02
 - [x] Add timeout assertion tests for search and send_hook — CLI-06
 
+### Completed (Phase 3)
+
+- [x] Add conditional MemoryProvider ABC inheritance — PRO-01
+- [x] Fix prefetch() to return `str` (empty string instead of None) — PRO-03
+- [x] Fix sync_turn/on_session_end to absorb extra kwargs — PRO-04/05
+- [x] Fix handle_tool_call() to return JSON string — PRO-07
+- [x] Add metadata param to on_memory_write() — PRO-01
+- [x] Fix initialize() to resolve workspace from kwargs — PRO-02
+- [x] Fix initialize() project kwarg override over profile — PRO-02
+- [x] Add tests for error propagation on tool paths — PRO-09
+- [x] Add tests for kwargs absorption and workspace resolution
+
 ### Open Items
 
-- [ ] Validate Hermes `MemoryProvider` ABC against real Hermes source before Phase 3
 - [ ] Write test_entry.py for Phase 4 entry point tests
 - [ ] Write test_cli.py for Phase 5 CLI tests
 
 ## Session
 
-**Last session:** 2026-07-03 — Phase 2 complete
-**Resume with:** Phase 3 — Provider implementation
-**Next phase:** Phase 3 — Provider
+**Last session:** 2026-07-03 — Phase 3 complete
+**Resume with:** Phase 4 — Entry Point implementation
+**Next phase:** Phase 4 — Entry Point

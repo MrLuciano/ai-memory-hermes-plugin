@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any
 
 from client import AiMemoryClient
 from config import AiMemoryConfig, get_config_schema, load_config, save_config
 
+try:
+    from agent.memory_provider import MemoryProvider  # type: ignore[import-untyped]
+except ImportError:
+    from abc import ABC as _ABC
 
-class AiMemoryProvider:
+    class MemoryProvider(_ABC):  # type: ignore[no-redef]
+        pass
+
+
+class AiMemoryProvider(MemoryProvider):
     def __init__(
         self,
         client: AiMemoryClient | None = None,
@@ -48,8 +57,16 @@ class AiMemoryProvider:
             if auth_token:
                 self._config.auth_token = auth_token
 
-            profile = kwargs.get("profile", "default")
-            self._config.project = f"hermes-{profile}"
+            workspace = kwargs.get("ai_memory_workspace", "")
+            if workspace:
+                self._config.workspace = workspace
+
+            project = kwargs.get("project", "")
+            if project:
+                self._config.project = project
+            else:
+                profile = kwargs.get("profile", "default")
+                self._config.project = f"hermes-{profile}"
 
             self._client = AiMemoryClient(self._config)
 
@@ -93,28 +110,28 @@ class AiMemoryProvider:
             },
         ]
 
-    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> Any:
+    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
         if tool_name == "ai_memory_search":
-            return self._search(args)
+            return json.dumps(self._search(args))
         if tool_name == "ai_memory_write":
-            return self._write(args)
+            return json.dumps(self._write(args))
         if tool_name == "ai_memory_status":
-            return self._status()
+            return json.dumps(self._status())
         raise ValueError(f"Unknown tool: {tool_name}")
 
     def system_prompt_block(self) -> str:
         return "Long-term memory is backed by ai-memory wiki."
 
-    def prefetch(self, query: str, *, session_id: str = "") -> str | None:
+    def prefetch(self, query: str, *, session_id: str = "") -> str:
         results = self._search({"query": query, "max_results": 3})
         if results.get("ok") and results.get("results"):
             return "\n\n".join(r.get("snippet", "") for r in results["results"])
-        return None
+        return ""
 
     def queue_prefetch(self, query: str) -> None:
         threading.Thread(target=self.prefetch, args=(query,), daemon=True).start()
 
-    def sync_turn(self, user: str, assistant: str, *, session_id: str = "") -> None:
+    def sync_turn(self, user: str, assistant: str, *, session_id: str = "", **kwargs: Any) -> None:
         def _do() -> None:
             try:
                 self._client.send_hook(
@@ -129,7 +146,7 @@ class AiMemoryProvider:
 
         threading.Thread(target=_do, daemon=True).start()
 
-    def on_session_end(self, messages: list[dict[str, Any]]) -> None:
+    def on_session_end(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
         def _do() -> None:
             try:
                 self._client.send_hook(
@@ -144,7 +161,9 @@ class AiMemoryProvider:
 
         threading.Thread(target=_do, daemon=True).start()
 
-    def on_memory_write(self, action: str, target: str, content: str) -> None:
+    def on_memory_write(
+        self, action: str, target: str, content: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         if action in ("write", "append"):
             self._client.write_page(
                 path=f"hermes-memory/{target}.md",
