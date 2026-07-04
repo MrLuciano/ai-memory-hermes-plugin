@@ -2,8 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-07-04T01:15:00.000Z"
+status: completed
+last_updated: "2026-07-04T01:35:55.269Z"
+progress:
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -13,13 +19,13 @@ last_updated: "2026-07-04T01:15:00.000Z"
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Hermes Agent users get ai-memory's zero-friction lifecycle capture, Karpathy-style LLM wiki compilation, and cross-agent handoffs — all as a native Hermes plugin.
-**Current focus:** Phase 5
+**Current focus:** Milestone v0.1.0 complete
 
 ## Current Position
 
-Phase: 5 — READY
-Plan: 1 of 1
-Status: Planned
+Phase: Complete
+Plan: 5 of 5
+Status: Milestone v0.1.0 complete — all 27 requirements implemented
 
 ## Milestone Plan
 
@@ -29,13 +35,13 @@ Status: Planned
 | 2 | Client | AiMemoryClient HTTP wrapper (search, write, status, hook, handoff) | CLI-01–08 | Complete |
 | 3 | Provider | AiMemoryProvider implementing MemoryProvider ABC | PRO-01–09 | Complete |
 | 4 | Entry Point | \_\_init\_\_.py + plugin.yaml for Hermes loader | ENT-01–03 | Complete |
-| 5 | CLI | hermes ai-memory status/config/link subcommands | CLI-09–11 | Ready |
+| 5 | CLI | hermes ai-memory status/config/link subcommands | CLI-09–11 | Complete |
 
 ## Quality Gates
 
 - `ruff check .` (clean)
 - `mypy .` (success — exclude = ["ai-memory"])
-- `pytest --cov` (fail_under 89 — 67 tests at 93.87%)
+- `pytest --cov` (fail_under 89 — 74 tests at 94.29%)
 
 ## Accumulated Context
 
@@ -86,10 +92,10 @@ Status: Planned
 ### Open Items
 
 - [x] Write test_entry.py for Phase 4 entry point tests
-- [ ] Write test_cli.py for Phase 5 CLI tests
+- [x] Write test_cli.py for Phase 5 CLI tests
 
 ## Session
 
-**Last session:** 2026-07-03 — Phase 4 planned
-**Resume with:** Phase 5 — CLI implementation (test_cli.py + cli.py)
-**Next step:** Plan and execute Phase 5 (CLI subcommands)
+**Last session:** 2026-07-03 — Phase 4 complete
+**Current:** Milestone v0.1.0 — all 5 phases complete, all 27 requirements implemented
+**Next step:** Push to GitHub, create release v0.1.0, or begin next milestone

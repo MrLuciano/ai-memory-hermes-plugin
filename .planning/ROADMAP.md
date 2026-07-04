@@ -33,7 +33,7 @@ Strict sequential chain — each phase builds on the prior. No parallelization.
 - [x] **Phase 2: Client** — AiMemoryClient HTTP wrapper for search, write, status, hook, handoff with differentiated timeout/error handling
 - [x] **Phase 3: Provider** — AiMemoryProvider implementing Hermes `MemoryProvider` ABC with lifecycle hooks and tool routing
 - [x] **Phase 4: Entry Point** — `__init__.py` + `plugin.yaml` for Hermes plugin loader discovery
-- [ ] **Phase 5: CLI** — `hermes ai-memory status/config/link` subcommands
+- [x] **Phase 5: CLI** — `hermes ai-memory status/config/link` subcommands
 
 ## Phase Details
 
