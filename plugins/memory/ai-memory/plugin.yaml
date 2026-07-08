@@ -1,6 +1,7 @@
 name: ai-memory
 version: 0.1.0
 description: "ai-memory wiki-backed long-term memory provider"
+kind: exclusive
 entry_point: __init__.py
 pip_dependencies:
   - httpx

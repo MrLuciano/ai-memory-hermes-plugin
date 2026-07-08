@@ -30,7 +30,13 @@ def test_is_available_with_token(provider: AiMemoryProvider) -> None:
 
 
 def test_is_available_without_token() -> None:
+    # ai-memory is available without auth tokens — only server_url matters.
     p = AiMemoryProvider(config=AiMemoryConfig())
+    assert p.is_available() is True
+
+
+def test_is_available_without_server_url() -> None:
+    p = AiMemoryProvider(config=AiMemoryConfig(server_url=""))
     assert p.is_available() is False
 
 

@@ -11,7 +11,10 @@
 
 - `scripts/install.sh` one-liner (`bash <(curl -sL ...)`) now works when the script is streamed via process substitution. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME/plugins/ai-memory`.
 - `scripts/install.ps1` one-liner (`iex ((Invoke-WebRequest ...).Content)`) now works when the script runs in memory. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME\plugins\ai-memory`.
+- `AiMemoryProvider.is_available()` now returns `True` whenever `server_url` is configured, instead of requiring an auth token. Hermes only activates a memory provider when `is_available()` is `True`; requiring auth made the plugin appear inactive for default local installs.
 - `plugins/memory/ai-memory/provider.py` — moved `logging.getLogger(__name__)` after imports to resolve ruff `E402` lint errors.
+- Plugin submodules (`client.py`, `config.py`, `cli.py`, `provider.py`) now self-register their directory in `sys.path`, so Hermes can pre-load them before `__init__.py` runs without import errors.
+- `plugin.yaml` now declares `kind: exclusive` so Hermes treats it explicitly as a memory-provider plugin.
 
 ### Documentation
 

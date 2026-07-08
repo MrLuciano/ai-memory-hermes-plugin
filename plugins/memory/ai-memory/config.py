@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Ensure sibling modules are findable when this file is loaded standalone
+# (Hermes pre-loads submodules before executing __init__.py).
+_PLUGIN_DIR = str(Path(__file__).resolve().parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
 
 DEFAULT_SERVER_URL = "http://127.0.0.1:49374"
 

@@ -52,6 +52,31 @@ hermes memory config
 
 ## Installation
 
+### Provider shows as "none — built-in only"
+
+**Cause:** The plugin is installed but not active in Hermes. Hermes only adds an external memory provider when `memory.provider` is set to `ai-memory` in `config.yaml`.
+
+**Check:**
+```bash
+hermes plugins list | grep ai-memory
+hermes memory config
+# → provider should show ai-memory
+cat "$HERMES_HOME/config.yaml" | grep -A2 "memory:"
+```
+
+**Fix:**
+```bash
+hermes plugins enable ai-memory
+# or manually set in $HERMES_HOME/config.yaml:
+# memory:
+#   provider: ai-memory
+```
+
+If the plugin still does not appear, run with debug logging to see discovery/loading errors:
+```bash
+HERMES_PLUGINS_DEBUG=1 hermes memory status
+```
+
 ### Uninstall leaves config behind
 
 **Cause:** The uninstall scripts keep `$HERMES_HOME/ai-memory.json` by default to avoid losing user settings.

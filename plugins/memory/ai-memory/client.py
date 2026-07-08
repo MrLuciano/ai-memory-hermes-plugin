@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
-from config import AiMemoryConfig
+
+# Ensure sibling modules are findable when this file is loaded standalone
+# (Hermes pre-loads submodules before executing __init__.py).
+_PLUGIN_DIR = str(Path(__file__).resolve().parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
+
+from config import AiMemoryConfig  # noqa: E402
 
 log = logging.getLogger("ai-memory")
 

@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
-from client import AiMemoryClient
-from config import load_config
+# Ensure sibling modules are findable when this file is loaded standalone
+# (Hermes pre-loads submodules before executing __init__.py).
+_PLUGIN_DIR = str(Path(__file__).resolve().parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
+
+from client import AiMemoryClient  # noqa: E402
+from config import load_config  # noqa: E402
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 

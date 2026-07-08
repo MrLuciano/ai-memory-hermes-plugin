@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import threading
+from pathlib import Path
 from typing import Any
 
-from client import AiMemoryClient
-from config import AiMemoryConfig, get_config_schema, load_config, save_config
+# Ensure sibling modules are findable when this file is loaded standalone
+# (Hermes pre-loads submodules before executing __init__.py).
+_PLUGIN_DIR = str(Path(__file__).resolve().parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
+
+from client import AiMemoryClient  # noqa: E402
+from config import AiMemoryConfig, get_config_schema, load_config, save_config  # noqa: E402
 
 try:
     from agent.memory_provider import MemoryProvider  # type: ignore[import-untyped]
@@ -36,7 +44,9 @@ class AiMemoryProvider(MemoryProvider):
         return "ai-memory"
 
     def is_available(self) -> bool:
-        return bool(self._config.auth_token or self._config.api_key)
+        # ai-memory does not require authentication by default; the provider
+        # is available whenever a server URL is configured.
+        return bool(self._config.server_url)
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         self.session_id = session_id
