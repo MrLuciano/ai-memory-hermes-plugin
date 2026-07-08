@@ -6,6 +6,7 @@
 
 - `scripts/install.sh` one-liner (`bash <(curl -sL ...)`) now works when the script is streamed via process substitution. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME/plugins/ai-memory`.
 - `scripts/install.ps1` one-liner (`iex ((Invoke-WebRequest ...).Content)`) now works when the script runs in memory. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME\plugins\ai-memory`.
+- `plugins/memory/ai-memory/provider.py` — moved `logging.getLogger(__name__)` after imports to resolve ruff `E402` lint errors.
 
 ### Documentation
 

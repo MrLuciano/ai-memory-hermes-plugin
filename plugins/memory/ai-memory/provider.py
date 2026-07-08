@@ -5,8 +5,6 @@ import logging
 import threading
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from client import AiMemoryClient
 from config import AiMemoryConfig, get_config_schema, load_config, save_config
 
@@ -17,6 +15,8 @@ except ImportError:
 
     class MemoryProvider(_ABC):  # type: ignore[no-redef]
         pass
+
+log = logging.getLogger(__name__)
 
 
 class AiMemoryProvider(MemoryProvider):
