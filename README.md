@@ -161,6 +161,26 @@ With custom server URL:
 powershell -c "$env:ServerUrl='http://10.0.0.42:49374'; iex ((Invoke-WebRequest -Uri '...').Content)"
 ```
 
+### Uninstall
+
+Removes the plugin from `$HERMES_HOME/plugins/ai-memory` and runs `hermes plugins disable ai-memory` if the Hermes CLI is available. The `ai-memory.json` config file is kept unless you pass the removal flag.
+
+Linux/macOS:
+
+```bash
+bash scripts/uninstall.sh
+# Also remove config:
+REMOVE_CONFIG=true bash scripts/uninstall.sh
+```
+
+Windows (PowerShell):
+
+```powershell
+.\scripts\uninstall.ps1
+# Also remove config:
+.\scripts\uninstall.ps1 -RemoveConfig
+```
+
 ### uv pip install (from repo)
 
 If you have `uv` and are deploying from a local clone:

@@ -143,14 +143,17 @@ Entry point in `__init__.py`:
 |---|---|---|---|
 | Linux/macOS | `scripts/install.sh` | `curl`, `tar` | Symlinks plugin from local repo; downloads from GitHub when run via `bash <(curl ...)` |
 | Windows | `scripts/install.ps1` | PowerShell 5.1+ with .NET | Creates junction from local repo; downloads from GitHub when run via `iex` |
+| Linux/macOS | `scripts/uninstall.sh` | `bash` | Removes plugin directory/symlink; disables plugin in Hermes if CLI exists |
+| Windows | `scripts/uninstall.ps1` | PowerShell 5.1+ | Removes plugin directory/junction; disables plugin in Hermes if CLI exists |
 
 ### Environment Variables
 
 | Variable | Used By | Description |
 |---|---|---|
-| `HERMES_HOME` | Both | Hermes profile directory (default: `~/.hermes` / `%USERPROFILE%\.hermes`) |
-| `AI_MEMORY_SERVER_URL` | Both | Initial `server_url` written to `ai-memory.json` |
-| `REPO_TARBALL_URL` | Both | Override the GitHub tarball/zip URL used by the one-liner fallback |
+| `HERMES_HOME` | install/uninstall | Hermes profile directory (default: `~/.hermes` / `%USERPROFILE%\.hermes`) |
+| `AI_MEMORY_SERVER_URL` | install | Initial `server_url` written to `ai-memory.json` |
+| `REPO_TARBALL_URL` | install | Override the GitHub tarball/zip URL used by the one-liner fallback |
+| `REMOVE_CONFIG` | uninstall (bash) | Set to `true` to delete `$HERMES_HOME/ai-memory.json` |
 
 ## Quality Gates
 

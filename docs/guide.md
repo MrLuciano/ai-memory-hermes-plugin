@@ -264,6 +264,31 @@ Requires PowerShell 5.1+ with .NET (default on Windows 10/11 and Windows Server 
 powershell -c "iex ((Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.ps1').Content)"
 ```
 
+### Uninstall
+
+Two uninstall scripts are included:
+
+- `scripts/uninstall.sh` — Linux/macOS
+- `scripts/uninstall.ps1` — Windows
+
+Both remove `$HERMES_HOME/plugins/ai-memory` (symlink, junction, or copied directory) and run `hermes plugins disable ai-memory` if the Hermes CLI is available. The `ai-memory.json` config file is kept unless you request removal.
+
+Linux/macOS:
+
+```bash
+bash scripts/uninstall.sh
+# Also remove config:
+REMOVE_CONFIG=true bash scripts/uninstall.sh
+```
+
+Windows (PowerShell):
+
+```powershell
+.\scripts\uninstall.ps1
+# Also remove config:
+.\scripts\uninstall.ps1 -RemoveConfig
+```
+
 ### uv pip install (from local clone)
 
 If you have the repository cloned and want to install `httpx` into your Hermes environment:

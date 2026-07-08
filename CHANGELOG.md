@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/uninstall.sh` — removes `$HERMES_HOME/plugins/ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME/ai-memory.json` when `REMOVE_CONFIG=true`.
+- `scripts/uninstall.ps1` — Windows equivalent; removes `$HERMES_HOME\plugins\ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME\ai-memory.json` with `-RemoveConfig`.
+
 ### Fixed
 
 - `scripts/install.sh` one-liner (`bash <(curl -sL ...)`) now works when the script is streamed via process substitution. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME/plugins/ai-memory`.
@@ -10,7 +15,7 @@
 
 ### Documentation
 
-- Updated README, docs/guide.md, docs/reference.md, and docs/common-problems.md to document install-script requirements, fallback behavior, and the `REPO_TARBALL_URL` override variable.
+- Updated README, docs/guide.md, docs/reference.md, and docs/common-problems.md to document install/uninstall scripts, fallback behavior, config-removal flags, and the `REPO_TARBALL_URL` override variable.
 
 ## [0.1.0] — 2026-07-03
 

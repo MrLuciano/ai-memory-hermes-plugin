@@ -52,6 +52,22 @@ hermes memory config
 
 ## Installation
 
+### Uninstall leaves config behind
+
+**Cause:** The uninstall scripts keep `$HERMES_HOME/ai-memory.json` by default to avoid losing user settings.
+
+**Fix:** Pass the config-removal flag:
+
+```bash
+# Linux/macOS
+REMOVE_CONFIG=true bash scripts/uninstall.sh
+```
+
+```powershell
+# Windows
+.\scripts\uninstall.ps1 -RemoveConfig
+```
+
 ### One-liner fails with "plugin source not found"
 
 **Cause:** Older versions of `install.sh` / `install.ps1` assumed they were being run from a cloned repo. When invoked via the curl / `iex` one-liner, the script could not locate the local plugin files.
