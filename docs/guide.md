@@ -244,6 +244,8 @@ Both scripts:
 
 ### Linux/macOS One-liner
 
+Requires `curl` and `tar`. When run via `curl`, the script downloads the plugin from GitHub and copies it into `$HERMES_HOME/plugins/ai-memory`.
+
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.sh)
 ```
@@ -255,6 +257,8 @@ AI_MEMORY_SERVER_URL=http://10.0.0.42:49374 bash <(curl -sL ...)
 ```
 
 ### Windows One-liner
+
+Requires PowerShell 5.1+ with .NET (default on Windows 10/11 and Windows Server 2016+). When run via `iex`, the script downloads the plugin from GitHub and copies it into `$HERMES_HOME\plugins\ai-memory`.
 
 ```powershell
 powershell -c "iex ((Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.ps1').Content)"

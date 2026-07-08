@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # install.sh — Install ai-memory Hermes plugin on Linux/macOS
+#
+# Works when run:
+#   • locally from a cloned repo (scripts/install.sh or ./scripts/install.sh)
+#   • via the curl one-liner: bash <(curl -sL .../scripts/install.sh)
+#
+# In the one-liner case the script is streamed through /dev/fd, so there is no
+# local repo to symlink. We fall back to downloading the plugin files from
+# GitHub and copying them into $HERMES_HOME/plugins/ai-memory.
 set -euo pipefail
 
 AI_MEMORY_SERVER_URL="${AI_MEMORY_SERVER_URL:-http://127.0.0.1:49374}"
+REPO_TARBALL_URL="${REPO_TARBALL_URL:-https://github.com/MrLuciano/ai-memory-hermes-plugin/archive/refs/heads/main.tar.gz}"
 
 echo "==> ai-memory Hermes plugin installer"
 echo ""
@@ -11,11 +20,27 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PLUGIN_SRC="$PROJECT_DIR/plugins/memory/ai-memory"
+DOWNLOAD_DIR=""
 
+# If the local repo isn't present (e.g. curl one-liner via process substitution),
+# download the plugin source from GitHub.
 if [ ! -f "$PLUGIN_SRC/__init__.py" ]; then
-  echo "ERROR: plugin source not found at $PLUGIN_SRC"
-  echo "Run this script from the project root or the scripts/ directory."
-  exit 1
+  if ! command -v curl &>/dev/null || ! command -v tar &>/dev/null; then
+    echo "ERROR: plugin source not found locally and curl/tar are required to download it."
+    echo "Either clone the repository or install curl and tar, then re-run."
+    exit 1
+  fi
+
+  DOWNLOAD_DIR="$(mktemp -d)"
+  echo "  Source:      $REPO_TARBALL_URL (downloading...)"
+  curl -fsSL "$REPO_TARBALL_URL" | tar -xz -C "$DOWNLOAD_DIR" --strip-components=1
+  PLUGIN_SRC="$DOWNLOAD_DIR/plugins/memory/ai-memory"
+
+  if [ ! -f "$PLUGIN_SRC/__init__.py" ]; then
+    echo "ERROR: downloaded plugin source not found at $PLUGIN_SRC"
+    rm -rf "$DOWNLOAD_DIR"
+    exit 1
+  fi
 fi
 
 # Resolve HERMES_HOME
@@ -28,7 +53,12 @@ echo "  Server URL:  $AI_MEMORY_SERVER_URL"
 
 # Symlink or copy
 mkdir -p "$HERMES_HOME/plugins"
-if command -v ln &>/dev/null; then
+if [ -n "$DOWNLOAD_DIR" ]; then
+  # Downloaded source lives in a temp dir; copy it so the plugin survives cleanup.
+  rm -rf "$PLUGIN_DIR"
+  cp -r "$PLUGIN_SRC" "$PLUGIN_DIR"
+  echo "  Install:     copy (from downloaded source)"
+elif command -v ln &>/dev/null; then
   ln -sfn "$PLUGIN_SRC" "$PLUGIN_DIR"
   echo "  Install:     symlink"
 else
@@ -49,6 +79,12 @@ EOF
   echo "  Config:      $CONFIG_FILE (created)"
 else
   echo "  Config:      $CONFIG_FILE (exists, untouched)"
+fi
+
+# Cleanup temp download if used
+if [ -n "$DOWNLOAD_DIR" ]; then
+  rm -rf "$DOWNLOAD_DIR"
+  echo "  Cleanup:     removed temporary download"
 fi
 
 echo ""

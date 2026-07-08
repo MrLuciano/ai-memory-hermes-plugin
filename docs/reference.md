@@ -137,6 +137,21 @@ Entry point in `__init__.py`:
 3. Instantiates `AiMemoryProvider(config=config)`
 4. Calls `ctx.register_memory_provider(provider)`
 
+## Install Scripts
+
+| Platform | Script | Requirements | Behavior |
+|---|---|---|---|
+| Linux/macOS | `scripts/install.sh` | `curl`, `tar` | Symlinks plugin from local repo; downloads from GitHub when run via `bash <(curl ...)` |
+| Windows | `scripts/install.ps1` | PowerShell 5.1+ with .NET | Creates junction from local repo; downloads from GitHub when run via `iex` |
+
+### Environment Variables
+
+| Variable | Used By | Description |
+|---|---|---|
+| `HERMES_HOME` | Both | Hermes profile directory (default: `~/.hermes` / `%USERPROFILE%\.hermes`) |
+| `AI_MEMORY_SERVER_URL` | Both | Initial `server_url` written to `ai-memory.json` |
+| `REPO_TARBALL_URL` | Both | Override the GitHub tarball/zip URL used by the one-liner fallback |
+
 ## Quality Gates
 
 | Check | Command | Target |

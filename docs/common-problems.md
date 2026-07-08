@@ -52,6 +52,25 @@ hermes memory config
 
 ## Installation
 
+### One-liner fails with "plugin source not found"
+
+**Cause:** Older versions of `install.sh` / `install.ps1` assumed they were being run from a cloned repo. When invoked via the curl / `iex` one-liner, the script could not locate the local plugin files.
+
+**Check:**
+```bash
+# Are you using the latest install script from main?
+curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.sh | head -n 15
+```
+
+**Fix:**
+- Re-run the current one-liner. The install scripts now detect the missing local source and download the plugin from GitHub automatically.
+- If you prefer not to download, clone the repository and run the script locally:
+  ```bash
+  git clone https://github.com/MrLuciano/ai-memory-hermes-plugin.git
+  cd ai-memory-hermes-plugin
+  bash scripts/install.sh
+  ```
+
 ### Plugin Not Found by Hermes
 
 **Cause:** Plugin directory missing or wrong path.
