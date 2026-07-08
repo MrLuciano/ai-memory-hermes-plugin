@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -121,3 +122,135 @@ def test_cmd_link_already_linked(capsys: pytest.CaptureFixture[str], tmp_path: P
 
     captured = capsys.readouterr()
     assert "already" in captured.out.lower()
+
+
+def _build_fake_tarball(dest: Path, plugin_dir: Path) -> None:
+    """Create a zip archive that mimics the GitHub source tarball layout."""
+    import zipfile
+
+    prefix = "ai-memory-hermes-plugin-main/plugins/memory/ai-memory"
+    with zipfile.ZipFile(dest, "w") as zf:
+        for file in plugin_dir.rglob("*"):
+            if file.is_file():
+                arc_name = f"{prefix}/{file.relative_to(plugin_dir)}"
+                zf.write(file, arc_name)
+
+
+def test_cmd_update_registers_update_subcommand() -> None:
+    from cli import register_cli
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    register_cli(subparsers)
+    assert "update" in subparsers.choices
+
+
+def test_cmd_update_not_installed(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    from cli import cmd_update
+
+    args = argparse.Namespace(hermes_home=str(tmp_path / ".hermes"))
+    cmd_update(args)
+
+    captured = capsys.readouterr()
+    assert "not installed" in captured.out
+
+
+def test_cmd_update_from_github_preserves_config(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cli import cmd_update
+
+    monkeypatch.delenv("UPDATE_FROM_LOCAL", raising=False)
+    hermes_home = tmp_path / ".hermes"
+    plugin_dir = hermes_home / "plugins" / "ai-memory"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "__init__.py").write_text("# old")
+    config_file = hermes_home / "ai-memory.json"
+    config_file.write_text(json.dumps({"server_url": "http://custom:49374"}))
+
+    # Source files to "download"
+    source_plugin = tmp_path / "source" / "ai-memory"
+    source_plugin.mkdir(parents=True)
+    (source_plugin / "__init__.py").write_text("# new")
+    (source_plugin / "provider.py").write_text("# new provider")
+    tarball = tmp_path / "repo.zip"
+    _build_fake_tarball(tarball, source_plugin)
+
+    def fake_urlretrieve(url: str, dest: str) -> None:
+        shutil.copy(str(tarball), dest)
+
+    with patch("cli.urllib.request.urlretrieve", side_effect=fake_urlretrieve):
+        args = argparse.Namespace(hermes_home=str(hermes_home))
+        cmd_update(args)
+
+    captured = capsys.readouterr()
+    assert "Done" in captured.out
+    assert "Restart Hermes" in captured.out
+    assert (plugin_dir / "__init__.py").read_text() == "# new"
+    assert json.loads(config_file.read_text())["server_url"] == "http://custom:49374"
+    backups = list((hermes_home / "plugins").glob("ai-memory.bak.*"))
+    assert len(backups) == 1
+
+
+def test_cmd_update_creates_default_config(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cli import cmd_update
+
+    monkeypatch.delenv("UPDATE_FROM_LOCAL", raising=False)
+    hermes_home = tmp_path / ".hermes"
+    plugin_dir = hermes_home / "plugins" / "ai-memory"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "__init__.py").write_text("# old")
+
+    source_plugin = tmp_path / "source" / "ai-memory"
+    source_plugin.mkdir(parents=True)
+    (source_plugin / "__init__.py").write_text("# new")
+    tarball = tmp_path / "repo.zip"
+    _build_fake_tarball(tarball, source_plugin)
+
+    def fake_urlretrieve(url: str, dest: str) -> None:
+        shutil.copy(str(tarball), dest)
+
+    with patch("cli.urllib.request.urlretrieve", side_effect=fake_urlretrieve):
+        args = argparse.Namespace(hermes_home=str(hermes_home))
+        cmd_update(args)
+
+    config_file = hermes_home / "ai-memory.json"
+    assert config_file.exists()
+    config = json.loads(config_file.read_text())
+    assert config["server_url"] == "http://127.0.0.1:49374"
+    assert config["workspace"] == "hermes"
+
+
+def test_cmd_update_lists_multiple_backups(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cli import cmd_update
+
+    monkeypatch.delenv("UPDATE_FROM_LOCAL", raising=False)
+    hermes_home = tmp_path / ".hermes"
+    plugin_dir = hermes_home / "plugins" / "ai-memory"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "__init__.py").write_text("# old")
+
+    # Pre-seed an older backup
+    old_backup = hermes_home / "plugins" / "ai-memory.bak.20250101000000"
+    old_backup.mkdir(parents=True)
+
+    source_plugin = tmp_path / "source" / "ai-memory"
+    source_plugin.mkdir(parents=True)
+    (source_plugin / "__init__.py").write_text("# new")
+    tarball = tmp_path / "repo.zip"
+    _build_fake_tarball(tarball, source_plugin)
+
+    def fake_urlretrieve(url: str, dest: str) -> None:
+        shutil.copy(str(tarball), dest)
+
+    with patch("cli.urllib.request.urlretrieve", side_effect=fake_urlretrieve):
+        args = argparse.Namespace(hermes_home=str(hermes_home))
+        cmd_update(args)
+
+    captured = capsys.readouterr()
+    assert captured.out.count("ai-memory.bak.") >= 2
+    assert old_backup.name in captured.out

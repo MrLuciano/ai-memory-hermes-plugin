@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
+import shutil
 import sys
+import tempfile
+import urllib.request
+import zipfile
 from pathlib import Path
 
 # Ensure sibling modules are findable when this file is loaded standalone
@@ -15,6 +20,7 @@ from client import AiMemoryClient  # noqa: E402
 from config import load_config  # noqa: E402
 
 PLUGIN_DIR = Path(__file__).resolve().parent
+REPO_TARBALL_URL = "https://github.com/MrLuciano/ai-memory-hermes-plugin/archive/refs/heads/main.zip"
 
 
 def register_cli(subparsers: argparse._SubParsersAction) -> None:
@@ -26,6 +32,9 @@ def register_cli(subparsers: argparse._SubParsersAction) -> None:
 
     p = subparsers.add_parser("link", help="Link plugin into Hermes plugin directory")
     p.set_defaults(func=cmd_link)
+
+    p = subparsers.add_parser("update", help="Update the ai-memory plugin from GitHub")
+    p.set_defaults(func=cmd_update)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -68,3 +77,116 @@ def cmd_link(args: argparse.Namespace) -> None:
         print(f"Already linked: {target_dir}")
     except OSError as e:
         print(f"Failed to link: {e}")
+
+
+def cmd_update(args: argparse.Namespace) -> None:
+    hermes_home = Path(args.hermes_home)
+    plugin_dir = hermes_home / "plugins" / "ai-memory"
+    config_file = hermes_home / "ai-memory.json"
+
+    print("==> ai-memory Hermes plugin updater")
+    print("")
+
+    if not plugin_dir.exists():
+        print("ERROR: plugin not installed at {plugin_dir}")
+        print("Run the install script first.")
+        return
+
+    update_from_local = os.environ.get("UPDATE_FROM_LOCAL", "false").lower() == "true"
+
+    # Resolve source. The CLI update defaults to GitHub; UPDATE_FROM_LOCAL=true
+    # is only safe for non-symlink installs (otherwise PLUGIN_DIR points to the
+    # local repo itself and we would copy it onto itself).
+    plugin_src: Path
+    tmp_dir: Path | None = None
+    if update_from_local and not _is_symlink_or_junction(plugin_dir):
+        plugin_src = PLUGIN_DIR
+        print(f"  Source:      {plugin_src} (local repo)")
+    else:
+        if update_from_local and _is_symlink_or_junction(plugin_dir):
+            print(
+                "  NOTE:        UPDATE_FROM_LOCAL=true ignored for "
+                "symlink/junction install; using GitHub"
+            )
+        repo_url = os.environ.get("REPO_TARBALL_URL", REPO_TARBALL_URL)
+        tmp_dir = Path(tempfile.mkdtemp())
+        tarball = tmp_dir / "repo.zip"
+        print(f"  Source:      {repo_url} (downloading...)")
+        try:
+            urllib.request.urlretrieve(repo_url, tarball)
+        except Exception as e:
+            print(f"ERROR: failed to download update: {e}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+        with zipfile.ZipFile(tarball, "r") as zf:
+            zf.extractall(tmp_dir)
+        plugin_src = tmp_dir / "ai-memory-hermes-plugin-main" / "plugins" / "memory" / "ai-memory"
+        if not (plugin_src / "__init__.py").exists():
+            print(f"ERROR: downloaded plugin source not found at {plugin_src}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+    print(f"  Target:      {plugin_dir}")
+
+    # Backup current install
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_dir = hermes_home / "plugins" / f"ai-memory.bak.{timestamp}"
+    shutil.copytree(plugin_dir, backup_dir)
+    print(f"  Backup:      {backup_dir}")
+
+    # Remove old install
+    if _is_symlink_or_junction(plugin_dir):
+        plugin_dir.unlink()
+    else:
+        shutil.rmtree(plugin_dir)
+
+    # Install updated files
+    shutil.copytree(plugin_src, plugin_dir)
+    print("  Updated:     copy (from downloaded source)")
+
+    # Preserve config
+    backup_config = backup_dir / "ai-memory.json"
+    if backup_config.exists() and not config_file.exists():
+        shutil.copy2(backup_config, config_file)
+        print("  Config:      restored from backup")
+    elif config_file.exists():
+        print(f"  Config:      {config_file} (preserved)")
+    else:
+        default_config = {
+            "server_url": "http://127.0.0.1:49374",
+            "workspace": "hermes",
+            "project": "hermes-default",
+        }
+        config_body = ",\n".join(f'  "{k}": "{v}"' for k, v in default_config.items())
+        config_file.write_text("{\n" + config_body + "\n}\n")
+        print(f"  Config:      {config_file} (created)")
+
+    # Cleanup temp download
+    if tmp_dir:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print("  Cleanup:     removed temporary download")
+
+    # List backups
+    print("")
+    print("  Backups:")
+    backups = sorted((hermes_home / "plugins").glob("ai-memory.bak.*"))
+    for backup in backups:
+        print(f"    - {backup}")
+
+    print("")
+    print("==> Done. Restart Hermes for the update to take effect.")
+
+
+def _is_symlink_or_junction(path: Path) -> bool:
+    """Return True if path is a symlink or Windows junction."""
+    if path.is_symlink():
+        return True
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+        return attrs != -1 and bool(attrs & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+    except Exception:
+        return False

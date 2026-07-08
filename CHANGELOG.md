@@ -4,6 +4,9 @@
 
 ### Added
 
+- `scripts/update.sh` — updates the plugin from GitHub by default; backs up the old install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`; preserves `ai-memory.json`; supports `UPDATE_FROM_LOCAL=true` and `REPO_TARBALL_URL` overrides.
+- `scripts/update.ps1` — Windows equivalent with the same defaults and backup behavior.
+- `hermes ai-memory update` CLI command — downloads the latest plugin from GitHub, backs up the old install, and replaces the plugin files.
 - `scripts/uninstall.sh` — removes `$HERMES_HOME/plugins/ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME/ai-memory.json` when `REMOVE_CONFIG=true`.
 - `scripts/uninstall.ps1` — Windows equivalent; removes `$HERMES_HOME\plugins\ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME\ai-memory.json` with `-RemoveConfig`.
 

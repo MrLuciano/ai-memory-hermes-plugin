@@ -181,6 +181,36 @@ Windows (PowerShell):
 .\scripts\uninstall.ps1 -RemoveConfig
 ```
 
+### Update
+
+Fetches the latest plugin files from GitHub, backs up the current install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`, replaces the plugin, and preserves `ai-memory.json`.
+
+Linux/macOS:
+
+```bash
+bash scripts/update.sh
+# Or via one-liner:
+bash <(curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/update.sh)
+```
+
+Windows (PowerShell):
+
+```powershell
+.\scripts\update.ps1
+```
+
+Update from a local clone (preserves symlink/junction):
+
+```bash
+UPDATE_FROM_LOCAL=true bash scripts/update.sh
+```
+
+```powershell
+$env:UPDATE_FROM_LOCAL="true"; .\scripts\update.ps1
+```
+
+The CLI also provides `hermes ai-memory update`, which downloads and replaces the plugin from GitHub.
+
 ### uv pip install (from repo)
 
 If you have `uv` and are deploying from a local clone:

@@ -77,6 +77,19 @@ If the plugin still does not appear, run with debug logging to see discovery/loa
 HERMES_PLUGINS_DEBUG=1 hermes memory status
 ```
 
+### Update does not take effect
+
+**Cause:** Hermes loads plugins at startup. Replacing files on disk does not affect the running process.
+
+**Fix:** Restart Hermes after running `scripts/update.sh`, `scripts/update.ps1`, or `hermes ai-memory update`.
+
+If the update failed midway, restore from the backup created at `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`:
+
+```bash
+rm -rf "$HERMES_HOME/plugins/ai-memory"
+cp -r "$HERMES_HOME/plugins/ai-memory.bak.<timestamp>" "$HERMES_HOME/plugins/ai-memory"
+```
+
 ### Uninstall leaves config behind
 
 **Cause:** The uninstall scripts keep `$HERMES_HOME/ai-memory.json` by default to avoid losing user settings.

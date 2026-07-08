@@ -289,6 +289,45 @@ Windows (PowerShell):
 .\scripts\uninstall.ps1 -RemoveConfig
 ```
 
+### Update
+
+Two update scripts are included:
+
+- `scripts/update.sh` — Linux/macOS
+- `scripts/update.ps1` — Windows
+
+Both default to downloading the latest plugin from the GitHub `main` branch, back up the existing install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`, replace the plugin files, and preserve `ai-memory.json`. Backups are kept and listed after each run.
+
+Linux/macOS:
+
+```bash
+bash scripts/update.sh
+```
+
+Override the source tarball:
+
+```bash
+REPO_TARBALL_URL=https://example.com/ai-memory.tar.gz bash scripts/update.sh
+```
+
+Update from a local clone (preserves a symlink install):
+
+```bash
+UPDATE_FROM_LOCAL=true bash scripts/update.sh
+```
+
+Windows (PowerShell):
+
+```powershell
+.\scripts\update.ps1
+```
+
+```powershell
+$env:UPDATE_FROM_LOCAL="true"; .\scripts\update.ps1
+```
+
+The `hermes ai-memory update` command performs the same GitHub-based update from inside Hermes.
+
 ### uv pip install (from local clone)
 
 If you have the repository cloned and want to install `httpx` into your Hermes environment:

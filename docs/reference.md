@@ -145,6 +145,8 @@ Entry point in `__init__.py`:
 | Windows | `scripts/install.ps1` | PowerShell 5.1+ with .NET | Creates junction from local repo; downloads from GitHub when run via `iex` |
 | Linux/macOS | `scripts/uninstall.sh` | `bash` | Removes plugin directory/symlink; disables plugin in Hermes if CLI exists |
 | Windows | `scripts/uninstall.ps1` | PowerShell 5.1+ | Removes plugin directory/junction; disables plugin in Hermes if CLI exists |
+| Linux/macOS | `scripts/update.sh` | `curl`, `tar` | Downloads latest plugin from GitHub, backs up old install, preserves config |
+| Windows | `scripts/update.ps1` | PowerShell 5.1+ with .NET | Downloads latest plugin from GitHub, backs up old install, preserves config |
 
 ### Environment Variables
 
