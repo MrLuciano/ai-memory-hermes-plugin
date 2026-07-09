@@ -296,7 +296,7 @@ Two update scripts are included:
 - `scripts/update.sh` — Linux/macOS
 - `scripts/update.ps1` — Windows
 
-Both default to downloading the latest plugin from the GitHub `main` branch, back up the existing install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`, replace the plugin files, and preserve `ai-memory.json`. Backups are kept and listed after each run.
+Both default to downloading the latest plugin from the GitHub `main` branch, back up the existing install to `$HERMES_HOME/.ai-memory-backups/ai-memory.bak.<timestamp>`, replace the plugin files, and preserve `ai-memory.json`. Backups are kept and listed after each run.
 
 Linux/macOS:
 

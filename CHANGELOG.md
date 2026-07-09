@@ -4,7 +4,7 @@
 
 ### Added
 
-- `scripts/update.sh` — updates the plugin from GitHub by default; backs up the old install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`; preserves `ai-memory.json`; supports `UPDATE_FROM_LOCAL=true` and `REPO_TARBALL_URL` overrides.
+- `scripts/update.sh` — updates the plugin from GitHub by default; backs up the old install to `$HERMES_HOME/.ai-memory-backups/ai-memory.bak.<timestamp>` (outside the Hermes plugins directory so it is not discovered as a plugin); preserves `ai-memory.json`; supports `UPDATE_FROM_LOCAL=true` and `REPO_TARBALL_URL` overrides.
 - `scripts/update.ps1` — Windows equivalent with the same defaults and backup behavior.
 - `hermes ai-memory update` CLI command — downloads the latest plugin from GitHub, backs up the old install, and replaces the plugin files.
 - `scripts/uninstall.sh` — removes `$HERMES_HOME/plugins/ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME/ai-memory.json` when `REMOVE_CONFIG=true`.
@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- Update backups are now stored in `$HERMES_HOME/.ai-memory-backups/` instead of `$HERMES_HOME/plugins/`, preventing Hermes from discovering backup directories as additional `ai-memory` memory-provider plugins.
 - `scripts/install.sh` one-liner (`bash <(curl -sL ...)`) now works when the script is streamed via process substitution. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME/plugins/ai-memory`.
 - `scripts/install.ps1` one-liner (`iex ((Invoke-WebRequest ...).Content)`) now works when the script runs in memory. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME\plugins\ai-memory`.
 - `AiMemoryProvider.is_available()` now returns `True` whenever `server_url` is configured, instead of requiring an auth token. Hermes only activates a memory provider when `is_available()` is `True`; requiring auth made the plugin appear inactive for default local installs.

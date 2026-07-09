@@ -83,11 +83,11 @@ HERMES_PLUGINS_DEBUG=1 hermes memory status
 
 **Fix:** Restart Hermes after running `scripts/update.sh`, `scripts/update.ps1`, or `hermes ai-memory update`.
 
-If the update failed midway, restore from the backup created at `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`:
+If the update failed midway, restore from the backup created at `$HERMES_HOME/.ai-memory-backups/ai-memory.bak.<timestamp>`:
 
 ```bash
 rm -rf "$HERMES_HOME/plugins/ai-memory"
-cp -r "$HERMES_HOME/plugins/ai-memory.bak.<timestamp>" "$HERMES_HOME/plugins/ai-memory"
+cp -r "$HERMES_HOME/.ai-memory-backups/ai-memory.bak.<timestamp>" "$HERMES_HOME/plugins/ai-memory"
 ```
 
 ### Uninstall leaves config behind

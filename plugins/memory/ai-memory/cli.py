@@ -83,6 +83,7 @@ def cmd_update(args: argparse.Namespace) -> None:
     hermes_home = Path(args.hermes_home)
     plugin_dir = hermes_home / "plugins" / "ai-memory"
     config_file = hermes_home / "ai-memory.json"
+    backup_root = hermes_home / ".ai-memory-backups"
 
     print("==> ai-memory Hermes plugin updater")
     print("")
@@ -128,9 +129,10 @@ def cmd_update(args: argparse.Namespace) -> None:
 
     print(f"  Target:      {plugin_dir}")
 
-    # Backup current install
+    # Backup current install outside plugins/ so Hermes does not discover it
+    backup_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    backup_dir = hermes_home / "plugins" / f"ai-memory.bak.{timestamp}"
+    backup_dir = backup_root / f"ai-memory.bak.{timestamp}"
     shutil.copytree(plugin_dir, backup_dir)
     print(f"  Backup:      {backup_dir}")
 
@@ -169,9 +171,10 @@ def cmd_update(args: argparse.Namespace) -> None:
     # List backups
     print("")
     print("  Backups:")
-    backups = sorted((hermes_home / "plugins").glob("ai-memory.bak.*"))
-    for backup in backups:
-        print(f"    - {backup}")
+    if backup_root.exists():
+        backups = sorted(backup_root.glob("ai-memory.bak.*"))
+        for backup in backups:
+            print(f"    - {backup}")
 
     print("")
     print("==> Done. Restart Hermes for the update to take effect.")

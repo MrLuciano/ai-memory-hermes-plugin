@@ -183,7 +183,7 @@ Windows (PowerShell):
 
 ### Update
 
-Fetches the latest plugin files from GitHub, backs up the current install to `$HERMES_HOME/plugins/ai-memory.bak.<timestamp>`, replaces the plugin, and preserves `ai-memory.json`.
+Fetches the latest plugin files from GitHub, backs up the current install to `$HERMES_HOME/.ai-memory-backups/ai-memory.bak.<timestamp>`, replaces the plugin, and preserves `ai-memory.json`.
 
 Linux/macOS:
 

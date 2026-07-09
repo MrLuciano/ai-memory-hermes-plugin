@@ -15,6 +15,7 @@ $UpdateFromLocal = if ($env:UPDATE_FROM_LOCAL) { $env:UPDATE_FROM_LOCAL } else {
 $HermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE ".hermes" }
 $PluginDir = Join-Path $HermesHome "plugins\ai-memory"
 $ConfigFile = Join-Path $HermesHome "ai-memory.json"
+$BackupRoot = Join-Path $HermesHome ".ai-memory-backups"
 
 Write-Host "==> ai-memory Hermes plugin updater" -ForegroundColor Cyan
 Write-Host ""
@@ -67,9 +68,10 @@ else {
 Write-Host "  Target:      $PluginDir"
 Write-Host "  Method:      $currentMethod"
 
-# Backup current install
+# Backup current install (outside $HermesHome\plugins so Hermes does not discover it)
+$null = New-Item -ItemType Directory -Force -Path $BackupRoot
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-$backupDir = Join-Path $HermesHome "plugins\ai-memory.bak.$timestamp"
+$backupDir = Join-Path $BackupRoot "ai-memory.bak.$timestamp"
 Copy-Item -Recurse -Force $PluginDir $backupDir
 Write-Host "  Backup:      $backupDir"
 
@@ -120,8 +122,10 @@ if ($downloadDir) {
 # List backups
 Write-Host ""
 Write-Host "  Backups:"
-Get-ChildItem -Path (Join-Path $HermesHome "plugins") -Directory -Filter "ai-memory.bak.*" | Sort-Object Name | ForEach-Object {
-    Write-Host "    - $($_.FullName)"
+if (Test-Path $BackupRoot) {
+    Get-ChildItem -Path $BackupRoot -Directory -Filter "ai-memory.bak.*" | Sort-Object Name | ForEach-Object {
+        Write-Host "    - $($_.FullName)"
+    }
 }
 
 # Best-effort enable

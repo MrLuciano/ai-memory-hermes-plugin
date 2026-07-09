@@ -12,6 +12,7 @@ UPDATE_FROM_LOCAL="${UPDATE_FROM_LOCAL:-false}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/ai-memory"
 CONFIG_FILE="$HERMES_HOME/ai-memory.json"
+BACKUP_ROOT="$HERMES_HOME/.ai-memory-backups"
 
 echo "==> ai-memory Hermes plugin updater"
 echo ""
@@ -60,8 +61,9 @@ fi
 echo "  Target:      $PLUGIN_DIR"
 echo "  Method:      $CURRENT_METHOD"
 
-# Backup current install
-BACKUP_DIR="$HERMES_HOME/plugins/ai-memory.bak.$(date +%Y%m%d%H%M%S)"
+# Backup current install (outside $HERMES_HOME/plugins so Hermes does not discover it)
+mkdir -p "$BACKUP_ROOT"
+BACKUP_DIR="$BACKUP_ROOT/ai-memory.bak.$(date +%Y%m%d%H%M%S)"
 cp -a "$PLUGIN_DIR" "$BACKUP_DIR"
 echo "  Backup:      $BACKUP_DIR"
 
@@ -107,10 +109,12 @@ fi
 # List backups (directories and symlinks)
 echo ""
 echo "  Backups:"
-for b in "$HERMES_HOME/plugins"/ai-memory.bak.*; do
-  [ -e "$b" ] || continue
-  echo "    - $b"
-done
+if [ -d "$BACKUP_ROOT" ]; then
+  for b in "$BACKUP_ROOT"/ai-memory.bak.*; do
+    [ -e "$b" ] || continue
+    echo "    - $b"
+  done
+fi
 
 # Best-effort enable
 if command -v hermes &>/dev/null; then

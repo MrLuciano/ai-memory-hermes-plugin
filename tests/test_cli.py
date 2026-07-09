@@ -188,7 +188,7 @@ def test_cmd_update_from_github_preserves_config(
     assert "Restart Hermes" in captured.out
     assert (plugin_dir / "__init__.py").read_text() == "# new"
     assert json.loads(config_file.read_text())["server_url"] == "http://custom:49374"
-    backups = list((hermes_home / "plugins").glob("ai-memory.bak.*"))
+    backups = list((hermes_home / ".ai-memory-backups").glob("ai-memory.bak.*"))
     assert len(backups) == 1
 
 
@@ -235,7 +235,7 @@ def test_cmd_update_lists_multiple_backups(
     (plugin_dir / "__init__.py").write_text("# old")
 
     # Pre-seed an older backup
-    old_backup = hermes_home / "plugins" / "ai-memory.bak.20250101000000"
+    old_backup = hermes_home / ".ai-memory-backups" / "ai-memory.bak.20250101000000"
     old_backup.mkdir(parents=True)
 
     source_plugin = tmp_path / "source" / "ai-memory"
