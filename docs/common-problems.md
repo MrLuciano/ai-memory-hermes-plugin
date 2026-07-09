@@ -52,6 +52,28 @@ hermes memory config
 
 ## Installation
 
+### Plugin directory exists but is empty
+
+**Cause:** The install or update step did not complete, or the plugin was placed at the wrong path (`$HERMES_HOME/plugins/memory/ai-memory/` instead of `$HERMES_HOME/plugins/ai-memory/`).
+
+**Check:**
+```bash
+ls "$HERMES_HOME/plugins/ai-memory/"
+# Should show: __init__.py plugin.yaml provider.py client.py config.py cli.py README.md
+
+# Wrong nested path that Hermes will not discover:
+ls "$HERMES_HOME/plugins/memory/ai-memory/" 2>/dev/null && echo "wrong path exists"
+```
+
+**Fix:**
+```bash
+# Remove the empty/wrong directory and re-install
+rm -rf "$HERMES_HOME/plugins/ai-memory"
+rm -rf "$HERMES_HOME/plugins/memory/ai-memory"  # if present
+bash scripts/install.sh
+hermes plugins enable ai-memory
+```
+
 ### Provider shows as "none — built-in only"
 
 **Cause:** The plugin is installed but not active in Hermes. Hermes only adds an external memory provider when `memory.provider` is set to `ai-memory` in `config.yaml`.

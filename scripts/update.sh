@@ -13,6 +13,7 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/ai-memory"
 CONFIG_FILE="$HERMES_HOME/ai-memory.json"
 BACKUP_ROOT="$HERMES_HOME/.ai-memory-backups"
+WRONG_PLUGIN_DIR="$HERMES_HOME/plugins/memory/ai-memory"
 
 echo "==> ai-memory Hermes plugin updater"
 echo ""
@@ -21,6 +22,17 @@ if [ ! -e "$PLUGIN_DIR" ]; then
   echo "ERROR: plugin not installed at $PLUGIN_DIR"
   echo "Run scripts/install.sh first."
   exit 1
+fi
+
+if [ -d "$PLUGIN_DIR" ] && [ ! -f "$PLUGIN_DIR/__init__.py" ]; then
+  echo "WARNING:     $PLUGIN_DIR exists but is empty; continuing update."
+fi
+
+if [ -e "$WRONG_PLUGIN_DIR" ]; then
+  echo ""
+  echo "  WARNING:     found $WRONG_PLUGIN_DIR"
+  echo "               User-installed memory providers belong in $PLUGIN_DIR,"
+  echo "               not in plugins/memory/. Remove the nested path."
 fi
 
 # Detect current install method
@@ -125,6 +137,14 @@ if command -v hermes &>/dev/null; then
   fi
 else
   echo "  Hermes:      CLI not found; skipping enable"
+fi
+
+# Verify update
+if [ ! -f "$PLUGIN_DIR/__init__.py" ]; then
+  echo ""
+  echo "ERROR: update verification failed — $PLUGIN_DIR/__init__.py is missing."
+  echo "             Restore from backup: $BACKUP_DIR"
+  exit 1
 fi
 
 echo ""

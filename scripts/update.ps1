@@ -16,6 +16,7 @@ $HermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:U
 $PluginDir = Join-Path $HermesHome "plugins\ai-memory"
 $ConfigFile = Join-Path $HermesHome "ai-memory.json"
 $BackupRoot = Join-Path $HermesHome ".ai-memory-backups"
+$WrongPluginDir = Join-Path $HermesHome "plugins\memory\ai-memory"
 
 Write-Host "==> ai-memory Hermes plugin updater" -ForegroundColor Cyan
 Write-Host ""
@@ -24,6 +25,17 @@ if (-not (Test-Path $PluginDir)) {
     Write-Host "ERROR: plugin not installed at $PluginDir" -ForegroundColor Red
     Write-Host "Run scripts\install.ps1 first."
     exit 1
+}
+
+if ((Test-Path $PluginDir) -and -not (Test-Path (Join-Path $PluginDir "__init__.py"))) {
+    Write-Host "WARNING:     $PluginDir exists but is empty; continuing update."
+}
+
+if (Test-Path $WrongPluginDir) {
+    Write-Host ""
+    Write-Host "  WARNING:     found $WrongPluginDir"
+    Write-Host "               User-installed memory providers belong in $PluginDir,"
+    Write-Host "               not in plugins\memory\. Remove the nested path."
 }
 
 # Detect current install method
@@ -141,6 +153,14 @@ if ($hermes) {
 }
 else {
     Write-Host "  Hermes:      CLI not found; skipping enable"
+}
+
+# Verify update
+if (-not (Test-Path (Join-Path $PluginDir "__init__.py"))) {
+    Write-Host ""
+    Write-Host "ERROR: update verification failed — $PluginDir\__init__.py is missing." -ForegroundColor Red
+    Write-Host "             Restore from backup: $backupDir"
+    exit 1
 }
 
 Write-Host ""

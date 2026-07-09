@@ -84,6 +84,7 @@ def cmd_update(args: argparse.Namespace) -> None:
     plugin_dir = hermes_home / "plugins" / "ai-memory"
     config_file = hermes_home / "ai-memory.json"
     backup_root = hermes_home / ".ai-memory-backups"
+    wrong_plugin_dir = hermes_home / "plugins" / "memory" / "ai-memory"
 
     print("==> ai-memory Hermes plugin updater")
     print("")
@@ -92,6 +93,15 @@ def cmd_update(args: argparse.Namespace) -> None:
         print("ERROR: plugin not installed at {plugin_dir}")
         print("Run the install script first.")
         return
+
+    if plugin_dir.is_dir() and not (plugin_dir / "__init__.py").exists():
+        print(f"WARNING:     {plugin_dir} exists but is empty; continuing update.")
+
+    if wrong_plugin_dir.exists():
+        print("")
+        print(f"  WARNING:     found {wrong_plugin_dir}")
+        print("               User-installed memory providers belong in {plugin_dir},")
+        print("               not in plugins/memory/. Remove the nested path.")
 
     update_from_local = os.environ.get("UPDATE_FROM_LOCAL", "false").lower() == "true"
 
@@ -175,6 +185,13 @@ def cmd_update(args: argparse.Namespace) -> None:
         backups = sorted(backup_root.glob("ai-memory.bak.*"))
         for backup in backups:
             print(f"    - {backup}")
+
+    # Verify update
+    if not (plugin_dir / "__init__.py").exists():
+        print("")
+        print(f"ERROR: update verification failed — {plugin_dir}/__init__.py is missing.")
+        print(f"             Restore from backup: {backup_dir}")
+        return
 
     print("")
     print("==> Done. Restart Hermes for the update to take effect.")

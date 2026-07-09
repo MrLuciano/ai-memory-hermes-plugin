@@ -46,10 +46,25 @@ fi
 # Resolve HERMES_HOME
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/ai-memory"
+WRONG_PLUGIN_DIR="$HERMES_HOME/plugins/memory/ai-memory"
 
 echo "  Source:      $PLUGIN_SRC"
 echo "  Target:      $PLUGIN_DIR"
 echo "  Server URL:  $AI_MEMORY_SERVER_URL"
+
+# Warn if the plugin was previously placed at the wrong nested path
+if [ -e "$WRONG_PLUGIN_DIR" ]; then
+  echo ""
+  echo "  WARNING:     found $WRONG_PLUGIN_DIR"
+  echo "               User-installed memory providers belong in $PLUGIN_DIR,"
+  echo "               not in plugins/memory/. Remove the nested path and re-run."
+fi
+
+# If the target exists but is empty, treat it as not installed
+if [ -d "$PLUGIN_DIR" ] && [ ! -f "$PLUGIN_DIR/__init__.py" ]; then
+  echo "  Target exists but is empty; removing and re-installing."
+  rm -rf "$PLUGIN_DIR"
+fi
 
 # Symlink or copy
 mkdir -p "$HERMES_HOME/plugins"
@@ -85,6 +100,13 @@ fi
 if [ -n "$DOWNLOAD_DIR" ]; then
   rm -rf "$DOWNLOAD_DIR"
   echo "  Cleanup:     removed temporary download"
+fi
+
+# Verify install
+if [ ! -f "$PLUGIN_DIR/__init__.py" ]; then
+  echo ""
+  echo "ERROR: install verification failed — $PLUGIN_DIR/__init__.py is missing."
+  exit 1
 fi
 
 echo ""
