@@ -17,7 +17,7 @@ if _PLUGIN_DIR not in sys.path:
     sys.path.insert(0, _PLUGIN_DIR)
 
 from client import AiMemoryClient  # noqa: E402
-from config import load_config  # noqa: E402
+from config import _secret_keys, load_config, save_config  # noqa: E402
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 REPO_TARBALL_URL = "https://github.com/MrLuciano/ai-memory-hermes-plugin/archive/refs/heads/main.zip"
@@ -29,6 +29,11 @@ def register_cli(subparsers: argparse._SubParsersAction) -> None:
 
     p = subparsers.add_parser("config", help="Show ai-memory plugin configuration")
     p.set_defaults(func=cmd_config)
+
+    p = subparsers.add_parser("config-set", help="Set a config value (secrets are env-only)")
+    p.add_argument("key", help="Config key to set")
+    p.add_argument("value", help="Value to set")
+    p.set_defaults(func=cmd_config_set)
 
     p = subparsers.add_parser("link", help="Link plugin into Hermes plugin directory")
     p.set_defaults(func=cmd_link)
@@ -51,12 +56,39 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_config(args: argparse.Namespace) -> None:
     config = load_config(args.hermes_home)
+    secrets = _secret_keys()
     print("ai-memory configuration:")
     print(f"  server_url: {config.server_url}")
-    print(f"  api_key:    {'****' if config.api_key else '(not set)'}")
-    print(f"  auth_token: {'****' if config.auth_token else '(not set)'}")
+    for key, env_var in secrets.items():
+        value = getattr(config, key, "")
+        if os.environ.get(env_var):
+            status = f"(set via env: {env_var})"
+        elif value:
+            status = "(set — migrate to env var)"
+        else:
+            status = "(not set)"
+        print(f"  {key}: {status}")
     print(f"  workspace:  {config.workspace}")
     print(f"  project:    {config.project}")
+
+
+def cmd_config_set(args: argparse.Namespace) -> None:
+    secrets = _secret_keys()
+    key = args.key
+    value = args.value
+
+    if key in secrets:
+        env_var = secrets[key]
+        print(f"NOT WRITTEN TO DISK: {key} is a secret — use an environment variable:")
+        print(f"  export {env_var}='{value}'")
+        print("Add it to your shell profile or systemd environment for persistence.")
+        return
+
+    skipped = save_config({key: value}, args.hermes_home)
+    if skipped:
+        for s in skipped:
+            print(f"  skipped: {s} (use env var)")
+    print(f"  saved: {key} -> {Path(args.hermes_home) / 'ai-memory.json'}")
 
 
 def cmd_link(args: argparse.Namespace) -> None:
@@ -156,11 +188,20 @@ def cmd_update(args: argparse.Namespace) -> None:
     shutil.copytree(plugin_src, plugin_dir)
     print("  Updated:     copy (from downloaded source)")
 
-    # Preserve config
+    # Preserve config — strip any secrets from old backup
     backup_config = backup_dir / "ai-memory.json"
     if backup_config.exists() and not config_file.exists():
-        shutil.copy2(backup_config, config_file)
-        print("  Config:      restored from backup")
+        try:
+            import json as _json
+            old_cfg = _json.loads(backup_config.read_text())
+            for secret_key in _secret_keys():
+                old_cfg.pop(secret_key, None)
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            config_file.write_text(_json.dumps(old_cfg, indent=2))
+            print("  Config:      restored from backup (secrets stripped)")
+        except Exception:
+            shutil.copy2(backup_config, config_file)
+            print("  Config:      restored from backup")
     elif config_file.exists():
         print(f"  Config:      {config_file} (preserved)")
     else:

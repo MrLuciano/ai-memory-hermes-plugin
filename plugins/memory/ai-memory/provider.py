@@ -82,8 +82,8 @@ class AiMemoryProvider(MemoryProvider):
     def get_config_schema(self) -> list[dict[str, Any]]:
         return get_config_schema()
 
-    def save_config(self, values: dict[str, Any], hermes_home: str) -> None:
-        save_config(values, hermes_home)
+    def save_config(self, values: dict[str, Any], hermes_home: str) -> list[str]:
+        return save_config(values, hermes_home)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [

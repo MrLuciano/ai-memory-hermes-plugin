@@ -71,11 +71,36 @@ Or use the `hermes memory setup` wizard.
 
 ### Authentication
 
-Optional Bearer auth:
+Optional Bearer auth via environment variables (secrets are **never written to disk**):
 
 ```bash
 export AI_MEMORY_API_KEY=sk-...
+export AI_MEMORY_AUTH_TOKEN=your-token-here
 ```
+
+Add to your shell profile for persistence:
+
+```bash
+# ~/.bashrc or ~/.zshrc
+export AI_MEMORY_API_KEY=sk-...
+```
+
+Or via systemd environment:
+
+```ini
+[Service]
+Environment="AI_MEMORY_API_KEY=sk-..."
+```
+
+Verify which source is active:
+
+```bash
+hermes ai-memory config
+# → auth_token: (set via env: AI_MEMORY_AUTH_TOKEN)
+# → api_key:    (not set)
+```
+
+**Note:** Attempting `hermes ai-memory config-set auth_token value` will show the env var to use instead — secrets are never persisted to `ai-memory.json`.
 
 ### Project Isolation
 
@@ -239,8 +264,19 @@ Two ready-to-run install scripts are included in the repository:
 
 Both scripts:
 1. Resolve `$HERMES_HOME` (default: `~/.hermes` or `%USERPROFILE%\.hermes`)
-2. Symlink/junction or copy the plugin directory
-3. Write an initial `ai-memory.json` config if none exists
+2. Run **pre-flight checks** (Hermes CLI, ai-memory server, plugin state, write permissions)
+3. Prompt for **confirmation** before making changes
+4. Symlink/junction or copy the plugin directory
+5. Write an initial `ai-memory.json` config if none exists
+
+#### Flags
+
+| Flag | Bash | PowerShell | Env var | Description |
+|---|---|---|---|---|
+| Dry run | `--dry-run` | `-DryRun` | — | Show what would happen without making changes |
+| Skip prompts | `--yes` | `-Yes` | `FORCE=true` | Skip confirmation (for CI/automation) |
+
+When piped (non-interactive), scripts detect the missing TTY, print a warning, and proceed. Set `FORCE=true` or pass `--yes`/`-Yes` to silence the warning.
 
 ### Linux/macOS One-liner
 
@@ -277,6 +313,10 @@ Linux/macOS:
 
 ```bash
 bash scripts/uninstall.sh
+# Dry-run (preview only):
+bash scripts/uninstall.sh --dry-run
+# Skip prompt:
+bash scripts/uninstall.sh --yes
 # Also remove config:
 REMOVE_CONFIG=true bash scripts/uninstall.sh
 ```
@@ -285,6 +325,10 @@ Windows (PowerShell):
 
 ```powershell
 .\scripts\uninstall.ps1
+# Dry-run:
+.\scripts\uninstall.ps1 -DryRun
+# Skip prompt:
+.\scripts\uninstall.ps1 -Yes
 # Also remove config:
 .\scripts\uninstall.ps1 -RemoveConfig
 ```
@@ -302,6 +346,10 @@ Linux/macOS:
 
 ```bash
 bash scripts/update.sh
+# Dry-run (preview only):
+bash scripts/update.sh --dry-run
+# Skip prompt:
+bash scripts/update.sh --yes
 ```
 
 Override the source tarball:
@@ -320,6 +368,10 @@ Windows (PowerShell):
 
 ```powershell
 .\scripts\update.ps1
+# Dry-run:
+.\scripts\update.ps1 -DryRun
+# Skip prompt:
+.\scripts\update.ps1 -Yes
 ```
 
 ```powershell

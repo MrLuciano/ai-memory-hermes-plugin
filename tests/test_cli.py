@@ -18,6 +18,7 @@ def test_register_cli_creates_subcommands() -> None:
     assert subparsers.choices is not None
     assert "status" in subparsers.choices
     assert "config" in subparsers.choices
+    assert "config-set" in subparsers.choices
     assert "link" in subparsers.choices
 
 
@@ -56,6 +57,7 @@ def test_cmd_config_shows_values(
 
     monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
     monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("AI_MEMORY_API_KEY", raising=False)
     config_dir = tmp_path / ".hermes"
     config_dir.mkdir(parents=True)
     config_file = config_dir / "ai-memory.json"
@@ -69,16 +71,88 @@ def test_cmd_config_shows_values(
     captured = capsys.readouterr()
     assert "http://custom:49374" in captured.out
     assert "custom-project" in captured.out
+    assert "(not set)" in captured.out
 
 
-def test_cmd_config_missing(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+def test_cmd_config_shows_env_source(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from cli import cmd_config
 
+    monkeypatch.setenv("AI_MEMORY_AUTH_TOKEN", "env-token-123")
+    monkeypatch.delenv("AI_MEMORY_API_KEY", raising=False)
+    config_dir = tmp_path / ".hermes"
+    config_dir.mkdir(parents=True)
+    (config_dir / "ai-memory.json").write_text(json.dumps({"server_url": "http://x:1"}))
+
+    args = argparse.Namespace(hermes_home=str(config_dir))
+    cmd_config(args)
+
+    captured = capsys.readouterr()
+    assert "set via env: AI_MEMORY_AUTH_TOKEN" in captured.out
+
+
+def test_cmd_config_set_rejects_secrets(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from cli import cmd_config_set
+
+    args = argparse.Namespace(
+        hermes_home=str(tmp_path), key="auth_token", value="secret123"
+    )
+    cmd_config_set(args)
+
+    captured = capsys.readouterr()
+    assert "NOT WRITTEN TO DISK" in captured.out
+    assert "AI_MEMORY_AUTH_TOKEN" in captured.out
+    # Ensure nothing was written to disk
+    assert not (tmp_path / "ai-memory.json").exists()
+
+
+def test_cmd_config_set_allows_non_secrets(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from cli import cmd_config_set
+
+    args = argparse.Namespace(
+        hermes_home=str(tmp_path), key="workspace", value="my-ws"
+    )
+    cmd_config_set(args)
+
+    captured = capsys.readouterr()
+    assert "saved" in captured.out
+    data = json.loads((tmp_path / "ai-memory.json").read_text())
+    assert data["workspace"] == "my-ws"
+
+
+def test_cmd_config_set_rejects_api_key(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from cli import cmd_config_set
+
+    args = argparse.Namespace(
+        hermes_home=str(tmp_path), key="api_key", value="key-abc"
+    )
+    cmd_config_set(args)
+
+    captured = capsys.readouterr()
+    assert "NOT WRITTEN TO DISK" in captured.out
+    assert "AI_MEMORY_API_KEY" in captured.out
+
+
+def test_cmd_config_missing(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cli import cmd_config
+
+    monkeypatch.delenv("AI_MEMORY_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("AI_MEMORY_API_KEY", raising=False)
     args = argparse.Namespace(hermes_home=str(tmp_path / ".hermes"))
     cmd_config(args)
 
     captured = capsys.readouterr()
     assert captured.out
+    assert "(not set)" in captured.out
 
 
 def test_cmd_link_creates_symlink(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:

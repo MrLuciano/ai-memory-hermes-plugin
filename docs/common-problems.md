@@ -41,14 +41,39 @@ export AI_MEMORY_SERVER_URL=http://127.0.0.1:3113
 
 **Check:**
 ```bash
-hermes memory config
-# → api_key:    ****
-# → auth_token: ****
+hermes ai-memory config
+# → auth_token: (set via env: AI_MEMORY_AUTH_TOKEN)  ← source shown
+# → api_key:    (not set)
 ```
 
 **Fix:**
-- Set the correct key: `export AI_MEMORY_API_KEY=sk-...`
+- Set the correct key via environment variable:
+  ```bash
+  export AI_MEMORY_API_KEY=sk-...
+  ```
+- Add to shell profile for persistence:
+  ```bash
+  echo 'export AI_MEMORY_API_KEY=sk-...' >> ~/.bashrc
+  source ~/.bashrc
+  ```
 - Or re-run `hermes memory setup`
+
+### Secrets written to ai-memory.json (security concern)
+
+**Cause:** Older plugin versions may have persisted `api_key` or `auth_token` to the config file in plaintext.
+
+**Fix:** The plugin now strips secrets from the JSON file on load. To manually clean up:
+
+```bash
+# Check if secrets exist in the config
+cat "$HERMES_HOME/ai-memory.json" | grep -E "api_key|auth_token"
+
+# Edit and remove those lines, then set via env vars instead
+export AI_MEMORY_API_KEY=sk-...
+export AI_MEMORY_AUTH_TOKEN=your-token
+```
+
+**Note:** `hermes ai-memory config-set auth_token value` will remind you to use the env var — secrets are never written to disk by the plugin.
 
 ## Installation
 
@@ -127,6 +152,46 @@ REMOVE_CONFIG=true bash scripts/uninstall.sh
 # Windows
 .\scripts\uninstall.ps1 -RemoveConfig
 ```
+
+### Non-interactive mode warning ("non-interactive mode detected")
+
+**Cause:** The script was piped or run without a TTY (e.g. via `curl | bash`). Scripts detect missing stdin and proceed with a warning.
+
+**Fix:** This is expected behavior. To suppress the warning:
+
+```bash
+# Option 1: pass --yes
+bash <(curl -sL .../install.sh) --yes
+
+# Option 2: set FORCE=true
+FORCE=true bash <(curl -sL .../install.sh)
+```
+
+For automation (CI/CD), always use `FORCE=true` or `--yes`/`-Yes`.
+
+### Script prompts for confirmation (CI/automation blocked)
+
+**Cause:** All install/uninstall/update scripts prompt for confirmation by default.
+
+**Fix:** Pass `--yes` (bash) or `-Yes` (PowerShell), or set `FORCE=true`:
+
+```bash
+# Linux/macOS
+FORCE=true bash scripts/install.sh
+# or
+bash scripts/install.sh --yes
+```
+
+```powershell
+# Windows
+.\scripts\install.ps1 -Yes
+```
+
+### Dry-run shows nothing to do
+
+**Cause:** `--dry-run` / `-DryRun` shows what *would* happen. If the script has nothing to do (e.g. plugin already installed, no changes needed), the output is minimal.
+
+**Fix:** This is expected. The dry-run output is a preview — run without `--dry-run` to apply changes.
 
 ### One-liner fails with "plugin source not found"
 

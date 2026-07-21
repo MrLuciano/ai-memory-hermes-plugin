@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 # Ensure sibling modules are findable when this file is loaded standalone
 # (Hermes pre-loads submodules before executing __init__.py).
@@ -37,6 +40,7 @@ def get_config_schema() -> list[dict[str, Any]]:
             "key": "api_key",
             "description": "ai-memory API key (optional for local mode)",
             "secret": True,
+            "env_only": True,
             "required": False,
             "env_var": "AI_MEMORY_API_KEY",
         },
@@ -44,6 +48,7 @@ def get_config_schema() -> list[dict[str, Any]]:
             "key": "auth_token",
             "description": "ai-memory auth token (optional for local mode)",
             "secret": True,
+            "env_only": True,
             "required": False,
             "env_var": "AI_MEMORY_AUTH_TOKEN",
         },
@@ -62,7 +67,29 @@ def get_config_schema() -> list[dict[str, Any]]:
     ]
 
 
-def save_config(values: dict[str, Any], hermes_home: str) -> None:
+def _secret_keys() -> dict[str, str]:
+    """Return {config_key: env_var_name} for all secret/env-only fields."""
+    schema = get_config_schema()
+    result: dict[str, str] = {}
+    for item in schema:
+        if item.get("secret"):
+            env_var = item.get("env_var", f"AI_MEMORY_{item['key'].upper()}")
+            result[item["key"]] = env_var
+    return result
+
+
+def save_config(values: dict[str, Any], hermes_home: str) -> list[str]:
+    """Save non-secret config values to disk. Returns list of skipped secret keys."""
+    secrets = _secret_keys()
+    skipped: list[str] = []
+    safe_values: dict[str, Any] = {}
+    for k, v in values.items():
+        if k in secrets:
+            log.info("secret %s not written to disk — set %s instead", k, secrets[k])
+            skipped.append(k)
+            continue
+        safe_values[k] = v
+
     p = Path(hermes_home) / "ai-memory.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, Any] = {}
@@ -71,8 +98,14 @@ def save_config(values: dict[str, Any], hermes_home: str) -> None:
             existing = json.loads(p.read_text())
         except Exception:
             pass
-    existing.update(values)
+
+    # Also strip any secrets already persisted in the file
+    for secret_key in secrets:
+        existing.pop(secret_key, None)
+
+    existing.update(safe_values)
     p.write_text(json.dumps(existing, indent=2))
+    return skipped
 
 
 def load_config(hermes_home: str) -> AiMemoryConfig:

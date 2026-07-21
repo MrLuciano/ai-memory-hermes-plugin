@@ -9,6 +9,14 @@
 - `hermes ai-memory update` CLI command — downloads the latest plugin from GitHub, backs up the old install, and replaces the plugin files.
 - `scripts/uninstall.sh` — removes `$HERMES_HOME/plugins/ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME/ai-memory.json` when `REMOVE_CONFIG=true`.
 - `scripts/uninstall.ps1` — Windows equivalent; removes `$HERMES_HOME\plugins\ai-memory`, disables the plugin in Hermes if the CLI is available, and optionally removes `$HERMES_HOME\ai-memory.json` with `-RemoveConfig`.
+- `hermes ai-memory config-set` CLI command — sets config values; rejects secrets with env-var instructions.
+- Config schema now marks `api_key` and `auth_token` as `env_only: true` (env vars only, never persisted to disk).
+- `save_config()` now filters secrets before writing to `ai-memory.json` and strips any existing secrets from the file. Returns list of skipped secret keys.
+- `cmd_config` shows the source of each secret: `(set via env: AI_MEMORY_AUTH_TOKEN)` or `(not set)`.
+- **Pre-flight checks** for all install/uninstall/update scripts: verifies Hermes CLI, Hermes process, ai-memory server reachability, plugin state, write permissions, and wrong-path detection before making any changes.
+- **Dry-run mode** (`--dry-run` / `-DryRun`): all scripts show what would happen without making changes.
+- **Confirmation prompts**: all scripts prompt before destructive actions. Use `--yes`/`-Yes` or `FORCE=true` to skip (for CI/automation).
+- **Non-interactive detection**: when piped, scripts detect missing TTY, print a warning, and proceed. `FORCE=true` silences the warning.
 
 ### Fixed
 
@@ -19,13 +27,12 @@
 - `scripts/install.sh` one-liner (`bash <(curl -sL ...)`) now works when the script is streamed via process substitution. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME/plugins/ai-memory`.
 - `scripts/install.ps1` one-liner (`iex ((Invoke-WebRequest ...).Content)`) now works when the script runs in memory. It falls back to downloading the plugin from GitHub and copying it into `$HERMES_HOME\plugins\ai-memory`.
 - `AiMemoryProvider.is_available()` now returns `True` whenever `server_url` is configured, instead of requiring an auth token. Hermes only activates a memory provider when `is_available()` is `True`; requiring auth made the plugin appear inactive for default local installs.
-- `plugins/memory/ai-memory/provider.py` — moved `logging.getLogger(__name__)` after imports to resolve ruff `E402` lint errors.
-- Plugin submodules (`client.py`, `config.py`, `cli.py`, `provider.py`) now self-register their directory in `sys.path`, so Hermes can pre-load them before `__init__.py` runs without import errors.
-- `plugin.yaml` now declares `kind: exclusive` so Hermes treats it explicitly as a memory-provider plugin.
+- Secrets (`api_key`, `auth_token`) are no longer written to `ai-memory.json`. Existing secrets in the config file are stripped on load. Users must set secrets via environment variables.
+- `scripts/update.sh` and `hermes ai-memory update` now strip secrets from backed-up config files when restoring.
 
 ### Documentation
 
-- Updated README, docs/guide.md, docs/reference.md, and docs/common-problems.md to document install/uninstall scripts, fallback behavior, config-removal flags, and the `REPO_TARBALL_URL` override variable.
+- Updated README, docs/guide.md, docs/reference.md, and docs/common-problems.md to document install/uninstall scripts, fallback behavior, config-removal flags, the `REPO_TARBALL_URL` override variable, env-only secret handling, and pre-flight/dry-run/confirmation features.
 
 ## [0.1.0] — 2026-07-03
 
@@ -105,7 +112,7 @@
 
 ### Technical
 
-- 76 tests across 5 test files
+- 91 tests across 5 test files
 - 94%+ test coverage
 - ruff clean (0 errors)
 - mypy clean (0 issues, with documented `ai-memory` exclusion)

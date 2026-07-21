@@ -40,7 +40,7 @@ Hermes Agent → MemoryProvider ABC → AiMemoryProvider → AiMemoryClient → 
 | `__init__.py` | Entry point | `register()` — loads config, creates provider, calls `ctx.register_memory_provider()` |
 | `provider.py` | AiMemoryProvider | Implements `MemoryProvider` ABC; lifecycle hooks, tool dispatch |
 | `client.py` | AiMemoryClient | Typed HTTP wrapper; search, write page, send hook, fetch handoff |
-| `config.py` | AiMemoryConfig | Config dataclass + JSON persistence + env-var fallback |
+| `config.py` | AiMemoryConfig | Config dataclass + JSON persistence + env-var fallback + secret filtering |
 | `cli.py` | CLI | `status`/`config`/`link` subcommands for `hermes memory` |
 | `plugin.yaml` | Manifest | Metadata, hooks declaration, pip dependencies |
 
@@ -48,7 +48,7 @@ Hermes Agent → MemoryProvider ABC → AiMemoryProvider → AiMemoryClient → 
 
 | Hermes hook | ai-memory call | Threading |
 |---|---|---|
-| `is_available()` | Checks `auth_token` / `api_key` config | Sync |
+| `is_available()` | Checks `server_url` is configured | Sync |
 | `initialize()` | Resolves workspace/project from kwargs | Sync |
 | `prefetch(query)` | `GET /admin/search` | Sync |
 | `queue_prefetch(query)` | Spawns prefetch thread | Daemon thread |
@@ -64,14 +64,14 @@ Hermes Agent → MemoryProvider ABC → AiMemoryProvider → AiMemoryClient → 
 | Variable | Default | Description |
 |---|---|---|
 | `AI_MEMORY_SERVER_URL` | `http://127.0.0.1:49374` | ai-memory server address |
-| `AI_MEMORY_API_KEY` | `""` | API key (sent as Bearer token) |
-| `AI_MEMORY_AUTH_TOKEN` | `""` | Auth token (alias for api_key) |
+| `AI_MEMORY_API_KEY` | `""` | API key (sent as Bearer token) — **env-only, never written to disk** |
+| `AI_MEMORY_AUTH_TOKEN` | `""` | Auth token (alias for api_key) — **env-only, never written to disk** |
 
-Env vars override file config, which overrides defaults.
+Env vars override file config, which overrides defaults. Secrets (`api_key`, `auth_token`) are **never persisted to `ai-memory.json`** — they must be set via environment variables.
 
 ### Config File (`$HERMES_HOME/ai-memory.json`)
 
-Written by `hermes memory setup` wizard:
+Written by `hermes memory setup` wizard. Only non-secret values are stored:
 
 ```json
 {
@@ -79,6 +79,38 @@ Written by `hermes memory setup` wizard:
   "workspace": "hermes",
   "project": "hermes-default"
 }
+```
+
+### Secrets & Security
+
+`api_key` and `auth_token` are treated as **env-only secrets**:
+- They are **never written** to `ai-memory.json` by `save_config()` or `hermes memory setup`
+- If they already exist in the JSON file (e.g. from a previous version), they are **stripped on next load**
+- Set them via environment variables and add to your shell profile or systemd environment:
+
+```bash
+# Shell profile (~/.bashrc, ~/.zshrc, etc.)
+export AI_MEMORY_API_KEY=sk-your-key-here
+export AI_MEMORY_AUTH_TOKEN=your-token-here
+
+# Or systemd
+Environment="AI_MEMORY_API_KEY=sk-your-key-here"
+```
+
+The CLI shows where each secret is sourced from:
+
+```bash
+hermes ai-memory config
+# → auth_token: (set via env: AI_MEMORY_AUTH_TOKEN)
+# → api_key:    (not set)
+```
+
+Attempting to write a secret via `hermes ai-memory config-set` shows the env var to use instead:
+
+```bash
+hermes ai-memory config-set auth_token my-secret
+# → NOT WRITTEN TO DISK: auth_token is a secret — use an environment variable:
+#   export AI_MEMORY_AUTH_TOKEN='my-secret'
 ```
 
 ## Tools
@@ -133,12 +165,35 @@ tests/
 | Linux/macOS | [`scripts/install.sh`](scripts/install.sh) | Bash — symlinks or copies plugin into `$HERMES_HOME`, writes initial config |
 | Windows | [`scripts/install.ps1`](scripts/install.ps1) | PowerShell — creates NTFS junction or copies, writes initial config |
 
+All scripts support **pre-flight checks**, **dry-run**, and **confirmation prompts**:
+
+| Flag | Bash | PowerShell | Env var | Description |
+|---|---|---|---|---|
+| Dry run | `--dry-run` | `-DryRun` | — | Show what would happen without making changes |
+| Skip prompts | `--yes` | `-Yes` | `FORCE=true` | Skip all confirmation prompts (for CI/automation) |
+
+When piped (non-interactive), scripts detect the missing TTY and proceed with a warning. Set `FORCE=true` or pass `--yes`/`-Yes` to silence the warning.
+
+Pre-flight checks verify: Hermes CLI availability, Hermes process status, ai-memory server reachability, plugin state, write permissions, and existing config.
+
 ### One-liner (Linux/macOS)
 
 Requires `curl` and `tar`. The script downloads the plugin from GitHub when run via `curl`, then copies it into `$HERMES_HOME/plugins/ai-memory`.
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.sh)
+```
+
+Preview what the install would do (dry-run):
+
+```bash
+bash <(curl -sL .../install.sh) --dry-run
+```
+
+Skip confirmation prompts for automation:
+
+```bash
+FORCE=true bash <(curl -sL .../install.sh)
 ```
 
 Set `AI_MEMORY_SERVER_URL` before running to override the default server address:
@@ -169,6 +224,10 @@ Linux/macOS:
 
 ```bash
 bash scripts/uninstall.sh
+# Dry-run (preview only):
+bash scripts/uninstall.sh --dry-run
+# Skip prompt:
+bash scripts/uninstall.sh --yes
 # Also remove config:
 REMOVE_CONFIG=true bash scripts/uninstall.sh
 ```
@@ -177,6 +236,10 @@ Windows (PowerShell):
 
 ```powershell
 .\scripts\uninstall.ps1
+# Dry-run (preview only):
+.\scripts\uninstall.ps1 -DryRun
+# Skip prompt:
+.\scripts\uninstall.ps1 -Yes
 # Also remove config:
 .\scripts\uninstall.ps1 -RemoveConfig
 ```
@@ -189,6 +252,10 @@ Linux/macOS:
 
 ```bash
 bash scripts/update.sh
+# Dry-run (preview only):
+bash scripts/update.sh --dry-run
+# Skip prompt:
+bash scripts/update.sh --yes
 # Or via one-liner:
 bash <(curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/update.sh)
 ```
@@ -197,6 +264,10 @@ Windows (PowerShell):
 
 ```powershell
 .\scripts\update.ps1
+# Dry-run (preview only):
+.\scripts\update.ps1 -DryRun
+# Skip prompt:
+.\scripts\update.ps1 -Yes
 ```
 
 Update from a local clone (preserves symlink/junction):
