@@ -73,6 +73,12 @@ def test_handle_tool_call_search(provider: AiMemoryProvider) -> None:
     assert len(result["results"]) == 1
 
 
+def test_search_defaults_invalid_max_results(provider: AiMemoryProvider) -> None:
+    provider._client.search = MagicMock(return_value=[])
+    provider._search({"query": "test", "max_results": "invalid"})
+    assert provider._client.search.call_args.kwargs["limit"] == 5
+
+
 def test_handle_tool_call_write(provider: AiMemoryProvider) -> None:
     provider._client.write_page = MagicMock(return_value={"ok": True})
     result = json.loads(provider.handle_tool_call(
@@ -81,6 +87,15 @@ def test_handle_tool_call_write(provider: AiMemoryProvider) -> None:
     ))
     assert result["ok"] is True
     assert result["written"] == "notes/test.md"
+
+
+def test_handle_tool_call_write_accepts_current_api_page_id(provider: AiMemoryProvider) -> None:
+    provider._client.write_page = MagicMock(return_value={"page_id": "page-123"})
+    result = json.loads(provider.handle_tool_call(
+        "ai_memory_write",
+        {"path": "notes/test.md", "body": "# Hello"},
+    ))
+    assert result == {"ok": True, "written": "notes/test.md"}
 
 
 def test_handle_tool_call_status(provider: AiMemoryProvider) -> None:

@@ -199,6 +199,8 @@ class AiMemoryProvider(MemoryProvider):
     def _search(self, args: dict[str, Any]) -> dict[str, Any]:
         query = args.get("query", "")
         max_results = args.get("max_results", 5)
+        if not isinstance(max_results, int) or isinstance(max_results, bool):
+            max_results = 5
         results = self._client.search(
             query=query,
             limit=max_results,
@@ -215,7 +217,7 @@ class AiMemoryProvider(MemoryProvider):
             workspace=self._config.workspace,
             project=self._config.project,
         )
-        if not result.get("ok", False):
+        if not (result.get("ok", False) or result.get("page_id")):
             return result
         return {"ok": True, "written": args.get("path")}
 

@@ -39,14 +39,12 @@ def config() -> AiMemoryConfig:
 @pytest.fixture
 def mock_transport() -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        if "/admin/search" in request.url.path:
+        if "/api/v1/search" in request.url.path:
             return httpx.Response(
                 200,
-                json={
-                    "results": [
-                        {"path": "notes/test.md", "snippet": "test content", "score": 0.95},
-                    ],
-                },
+                json=[
+                    {"path": "notes/test.md", "snippet": "test content", "score": 0.95},
+                ],
             )
         if "/admin/write-page" in request.url.path:
             return httpx.Response(200, json={"ok": True, "path": "notes/test.md"})
