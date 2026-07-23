@@ -50,18 +50,20 @@ class AiMemoryClient:
         project: str | None = None,
         limit: int = 3,
     ) -> list[dict[str, Any]]:
-        params: dict[str, str] = {"q": query, "limit": str(limit)}
+        payload: dict[str, Any] = {"q": query}
         if workspace:
-            params["workspace"] = workspace
+            payload["workspace"] = workspace
         if project:
-            params["project"] = project
-        r = self._request("GET", "/admin/search", params=params, timeout=SEARCH_TIMEOUT)
+            payload["project"] = project
+        r = self._request("POST", "/api/v1/search", json=payload, timeout=SEARCH_TIMEOUT)
         r.raise_for_status()
         data = r.json()
-        if not isinstance(data, dict):
-            log.warning("search response is not a dict: %s", type(data).__name__)
+        if isinstance(data, dict):
+            data = data.get("results", data.get("pages", []))
+        if not isinstance(data, list):
+            log.warning("search response has unexpected type: %s", type(data).__name__)
             return []
-        return data.get("results", data.get("pages", []))
+        return [item for item in data if isinstance(item, dict)][:limit]
 
     def write_page(
         self,
