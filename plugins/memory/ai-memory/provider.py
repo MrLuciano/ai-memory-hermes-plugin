@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -20,7 +23,7 @@ from config import (  # noqa: E402
     explicit_scope_keys,
     get_config_schema,
     load_config,
-    marker_scope,
+    resolve_scope,
     save_config,
     validated_directory,
 )
@@ -49,6 +52,28 @@ log = logging.getLogger(__name__)
 # background cache holds before the oldest is evicted.
 _PREFETCH_RESULTS = 3
 _PREFETCH_CACHE_MAX = 8
+
+# Bounded drain for our own background workers at shutdown. Hermes' own drain
+# is bounded at 5s (_SYNC_DRAIN_TIMEOUT_S, agent/memory_manager.py:41) and only
+# covers its executor (_drain_sync_executor, agent/memory_manager.py:870-905);
+# it cannot see the threads this provider spawns, so shutdown() joins them here.
+_SHUTDOWN_JOIN_TIMEOUT = 5.0
+# The session-end POST is issued with the client's longer SESSION_END_TIMEOUT
+# budget. It must not share the generic 5s slice: shutdown() historically
+# returned while that daemon worker was still in flight and the session close
+# (plus its auto-handoff) was lost at interpreter exit.
+_SESSION_END_JOIN_TIMEOUT = SESSION_END_TIMEOUT
+# Hard cap for a single shutdown() call: the longest worker budget plus a
+# generic slice for any other workers still in flight.
+_MAX_SHUTDOWN_JOIN_TIMEOUT = _SESSION_END_JOIN_TIMEOUT + _SHUTDOWN_JOIN_TIMEOUT
+
+
+@dataclass(frozen=True)
+class _TrackedWorker:
+    """A started background worker and the time its in-flight call may need."""
+
+    thread: threading.Thread
+    join_budget: float
 
 
 @dataclass(frozen=True)
@@ -80,9 +105,24 @@ class AiMemoryProvider(MemoryProvider):
     ) -> None:
         self._config = replace(config) if config is not None else AiMemoryConfig()
         self._configured_config: AiMemoryConfig | None = None
-        self._scope_known = bool(
-            self._config.workspace and self._config.project
-            and self._config.project != AiMemoryConfig().project
+        _default_config = AiMemoryConfig()
+        self._workspace_source = (
+            "explicit"
+            if self._config.workspace.strip()
+            and self._config.workspace != _default_config.workspace
+            else ""
+        )
+        self._project_source = (
+            "explicit"
+            if self._config.project.strip()
+            and self._config.project != _default_config.project
+            else ""
+        )
+        self._scope_known = self._scope_authorized(
+            self._config.workspace,
+            self._config.project,
+            self._workspace_source,
+            self._project_source,
         )
         self._client = client or AiMemoryClient(self._config)
         self._lock = threading.RLock()
@@ -91,18 +131,30 @@ class AiMemoryProvider(MemoryProvider):
         self._hermes_home: str = ""
         self._cwd: str = ""
         self._cwd_normalized: str = ""
+        self._cwd_source: str = ""
         # Non-primary contexts (subagent / cron / flush) get no writes and must
         # not consume the single-use handoff. The default keeps standalone
         # callers writing, since only Hermes reports a context.
         self._agent_context: str = "primary"
         self._writes_enabled: bool = True
-        # Background recall from queue_prefetch, consumed once by prefetch:
-        # Session, search mode, workspace, project and query; consume once.
+        # Background recall from queue_prefetch, consumed once by prefetch.
+        # ``_prefetch_cache`` is keyed by the exact query; ``_prefetch_latest``
+        # is keyed by session+scope and remembers the newest queued recall, which
+        # is what Hermes actually consumes (it queues with the completed turn's
+        # user text and prefetches with the next turn's text).
         self._prefetch_cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+        self._prefetch_latest: dict[
+            tuple[str, str, str, str], tuple[str, list[dict[str, Any]]]
+        ] = {}
         self._last_recall_count: int = 0
         # Previous-session handoff, fetched once per session in initialize()
         # and surfaced through system_prompt_block(). None = none pending.
         self._handoff_context: str | None = None
+        # Threads spawned for background work, joined (bounded) in shutdown().
+        self._worker_threads: list[_TrackedWorker] = []
+        # Once shutdown starts, a late spawn must not create an untracked daemon
+        # that outlives the join. Such work runs inline instead.
+        self._shutting_down = False
 
     @property
     def name(self) -> str:
@@ -128,13 +180,18 @@ class AiMemoryProvider(MemoryProvider):
             # Non-primary contexts must not write or consume a handoff.
             self._agent_context = str(kwargs.get("agent_context") or "primary")
             self._writes_enabled = self._agent_context in ("", "primary")
-            self._cwd = str(kwargs.get("cwd") or "")
-            directory = validated_directory(self._cwd)
+            cwd, cwd_source = self._resolve_cwd(kwargs)
+            self._cwd = cwd
+            self._cwd_source = cwd_source
+            directory = validated_directory(cwd)
             self._cwd_normalized = str(directory) if directory is not None else ""
             self._generation += 1
             self._handoff_context = None
             self._scope_known = False
+            self._workspace_source = ""
+            self._project_source = ""
             self._prefetch_cache.clear()
+            self._prefetch_latest.clear()
             self._last_recall_count = 0
             if self._configured_config is None:
                 self._configured_config = replace(self._config)
@@ -153,11 +210,14 @@ class AiMemoryProvider(MemoryProvider):
             self._resolve_scope(kwargs, hermes_home)
             diagnostics = self.scope_diagnostics()
             log.info(
-                "ai-memory scope: cwd_received=%r cwd_normalized=%r "
-                "search_scope=%r workspace=%r project=%r scope_known=%r "
-                "writes_allowed=%r project_search_allowed=%r",
-                diagnostics["cwd_received"], diagnostics["cwd_normalized"],
-                diagnostics["search_scope"], diagnostics["workspace"], diagnostics["project"],
+                "ai-memory scope: cwd_received=%r cwd_source=%r cwd_normalized=%r "
+                "search_scope=%r workspace=%r project=%r workspace_source=%r "
+                "project_source=%r scope_known=%r writes_allowed=%r "
+                "project_search_allowed=%r",
+                diagnostics["cwd_received"], diagnostics["cwd_source"],
+                diagnostics["cwd_normalized"], diagnostics["search_scope"],
+                diagnostics["workspace"], diagnostics["project"],
+                diagnostics["workspace_source"], diagnostics["project_source"],
                 diagnostics["scope_known"], diagnostics["writes_allowed"],
                 diagnostics["project_search_allowed"],
             )
@@ -183,64 +243,173 @@ class AiMemoryProvider(MemoryProvider):
         except Exception:
             log.warning("ai-memory handoff fetch failed", exc_info=True)
 
-    def _resolve_scope(self, kwargs: dict[str, Any], hermes_home: str) -> None:
-        """Resolve this session's ``workspace``/``project``.
+    def _resolve_cwd(self, kwargs: dict[str, Any]) -> tuple[str, str]:
+        """The session working directory and where it came from.
 
-        Precedence: an explicit plugin override (the ``ai_memory_workspace`` /
-        ``project`` kwargs, or a workspace/project set in ``ai-memory.json`` or
-        an ``AI_MEMORY_*`` env var), then the checkout's ``.ai-memory.toml``
-        marker, then what Hermes reports.
-
-        The marker deliberately outranks Hermes: ``agent_workspace`` is the
-        literal ``"hermes"``, so letting it win pinned every session to a
-        project no other agent in the same repository writes to — which is what
-        broke cross-agent handoff. Hermes 0.20.5 also passes neither `project`
-        nor `profile`, only `agent_identity`, so the identity fallback below is
-        the last resort instead of the value of every session.
+        Hermes only adds ``cwd`` to the init kwargs when ``agent.session_cwd``
+        is truthy (agent/agent_init.py:1294-1295); the interactive CLI builds
+        ``AIAgent`` without it (hermes_cli/cli_agent_setup_mixin.py:695-744),
+        so ``cwd`` is normally absent on ``hermes chat``. Follow upstream's
+        guidance (website/docs/developer-guide/memory-provider-plugin.md:
+        134-139) and ask ``agent.runtime_cwd.resolve_agent_cwd()``, guarded so
+        the plugin still loads without Hermes. An explicit ``AI_MEMORY_CWD``
+        wins over both; an invalid explicit value fails closed rather than
+        silently falling through to a different directory.
         """
-        explicit = explicit_scope_keys(hermes_home)
-        overrides = load_config(hermes_home)
-        marker = marker_scope(self._cwd)
+        env_cwd = os.environ.get("AI_MEMORY_CWD", "").strip()
+        if env_cwd:
+            return env_cwd, "environment"
+        kwarg_cwd = str(kwargs.get("cwd") or "").strip()
+        if kwarg_cwd:
+            return kwarg_cwd, "kwargs"
+        try:
+            from agent.runtime_cwd import resolve_agent_cwd  # type: ignore[import-untyped]
+        except Exception:
+            return "", ""
+        try:
+            resolved = resolve_agent_cwd()
+        except Exception:
+            log.debug("ai-memory: resolve_agent_cwd() failed", exc_info=True)
+            return "", ""
+        return (str(resolved) if resolved else ""), "runtime"
 
-        # `agent_workspace` is a workspace NAME, not a filesystem path.
-        workspace = kwargs.get("ai_memory_workspace", "")
-        if not workspace and "workspace" in explicit:
-            workspace = overrides.workspace
+    def _resolve_scope(self, kwargs: dict[str, Any], hermes_home: str) -> None:
+        """Resolve this session's ``workspace``/``project`` and its provenance.
+
+        Delegates marker and derivation logic to ``config.resolve_scope``
+        instead of re-implementing it. Precedence: explicit operator values
+        (the ``ai_memory_workspace``/``project`` kwargs, an ``AI_MEMORY_*`` env
+        var, or a non-default programmatic config) > the nearest settings
+        marker > a project derived from the git remote or ``basename(cwd)``.
+        """
+        explicit_keys = explicit_scope_keys(hermes_home)
+        default = AiMemoryConfig()
+        base = self._configured_config if not hermes_home else None
+
+        explicit_workspace = str(kwargs.get("ai_memory_workspace") or "")
+        if not explicit_workspace and "workspace" in explicit_keys:
+            explicit_workspace = self._config.workspace
+
+        explicit_project = str(kwargs.get("project") or "")
+        if not explicit_project and "project" in explicit_keys:
+            explicit_project = self._config.project
+
+        programmatic_project = bool(
+            base is not None
+            and base.project
+            and base.project != default.project
+            and self._config.project == base.project
+        )
+
+        resolved = resolve_scope(
+            self._cwd,
+            explicit_workspace=explicit_workspace,
+            explicit_project=explicit_project,
+        )
+        # resolve_scope() returns {} for an unusable cwd, so explicit values
+        # still have to be applied here: an operator may pin scope without a
+        # working directory (the documented CLI path omits cwd).
+        workspace = resolved.get("workspace", "")
+        project = resolved.get("project", "")
+        workspace_source = resolved.get("workspace_source", "")
+        project_source = resolved.get("project_source", "")
+
+        # A non-default programmatic config is an operator choice. It must not
+        # outrank a marker (legacy behaviour), but it does outrank a project
+        # merely derived from a git remote / directory name.
+        if project_source == "derived" and programmatic_project:
+            project = self._config.project
+            project_source = "explicit"
+
         if not workspace:
-            workspace = marker.get("workspace", "")
+            # An explicit value survives an unusable cwd (resolve_scope
+            # returns {} then); it is an operator pin, not a derivation.
+            workspace = explicit_workspace
         if not workspace:
-            workspace = kwargs.get("agent_workspace", "")
+            # agent_workspace is the literal "hermes", not a path: use it only
+            # as a value, never as provenance.
+            workspace = str(kwargs.get("agent_workspace") or "")
+        if not workspace:
+            workspace = self._config.workspace
+        if not workspace_source and explicit_workspace:
+            workspace_source = "explicit"
+        elif (
+            not workspace_source
+            and base is not None
+            and base.workspace
+            and base.workspace != default.workspace
+            and self._config.workspace == base.workspace
+        ):
+            # A non-default programmatic config is an operator choice too, but
+            # it must not outrank a marker above; it only fills a gap.
+            workspace_source = "explicit"
         if workspace:
             self._config.workspace = workspace
 
-        project = kwargs.get("project", "")
-        if not project and "project" in explicit:
-            project = overrides.project
+        if not project and explicit_project:
+            project = explicit_project
+            project_source = "explicit"
         if not project:
-            project = marker.get("project", "")
-        self._scope_known = bool(
-            project or (self._config.project and self._config.project != AiMemoryConfig().project)
-        )
-        if project:
-            self._config.project = project
-        elif not self._config.project:
+            project = self._config.project
+            if (
+                base is not None
+                and base.project
+                and base.project != default.project
+                and self._config.project == base.project
+            ):
+                project_source = "explicit"
+            else:
+                project_source = ""
+        if not project:
             identity = kwargs.get("agent_identity", "") or "default"
-            self._config.project = f"hermes-{identity}"
+            project = f"hermes-{identity}"
+            project_source = ""
+        self._config.project = project
+
+        self._workspace_source = workspace_source
+        self._project_source = project_source
+        self._scope_known = self._scope_authorized(
+            workspace, project, workspace_source, project_source
+        )
+
+    @staticmethod
+    def _scope_authorized(
+        workspace: str, project: str, workspace_source: str, project_source: str
+    ) -> bool:
+        """Whether this scope may authorize project-scoped reads and writes.
+
+        Both fields must be non-empty. The project must be operator-pinned
+        (``explicit``/``marker``) or derived from a workspace that is itself
+        explicit/marker (upstream's workspace-only marker shape). A project
+        that is only the dataclass default, or only derived from an unmarked
+        directory, has no provenance and stays fail-closed.
+        """
+        if not workspace.strip() or not project.strip():
+            return False
+        if project_source in ("explicit", "marker"):
+            return True
+        return project_source == "derived" and workspace_source in ("explicit", "marker")
 
     def scope_diagnostics(self) -> dict[str, Any]:
         """Allowlisted local state only: no network, secrets, or memory content.
 
         Read the current instance, not a new provider or process cwd. An empty
-        normalized path means the received cwd was absent or invalid.
+        normalized path means the received cwd was absent or invalid; an empty
+        ``cwd_source`` means nothing resolved. Scope provenance distinguishes
+        an operator-pinned project from one derived for a workspace-only
+        marker.
         """
         with self._lock:
             context = self._snapshot()
             return {
                 "cwd_received": self._cwd,
+                "cwd_source": self._cwd_source,
                 "cwd_normalized": self._cwd_normalized,
                 "search_scope": context.search_scope,
                 "workspace": context.workspace,
                 "project": context.project,
+                "workspace_source": self._workspace_source,
+                "project_source": self._project_source,
                 "scope_known": context.scope_known,
                 "writes_allowed": self._has_write_scope(context),
                 "project_search_allowed": context.scope_known,
@@ -324,9 +493,24 @@ class AiMemoryProvider(MemoryProvider):
         return self._BASE_PROMPT + "\n\nPrevious session handoff:\n" + self._handoff_context
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Consume queued recall for this session, or search synchronously.
+
+        Hermes queues with the *completed* turn's user text and prefetches with
+        the *next* turn's text, so an exact-query hit is the exception. The
+        newest queued entry for the same session/scope is therefore consumed
+        even when the query text changed; the exact-query alias is consumed
+        first when it exists.
+        """
         context = self._snapshot(session_id)
+        scope_key = context.cache_key(query)[:4]
         with self._lock:
             hits = self._prefetch_cache.pop(context.cache_key(query), None)
+            latest = self._prefetch_latest.get(scope_key)
+            if hits is None and latest is not None:
+                queued_query, hits = self._prefetch_latest.pop(scope_key)
+                self._prefetch_cache.pop(context.cache_key(queued_query), None)
+            elif latest is not None and latest[0] == query:
+                self._prefetch_latest.pop(scope_key, None)
         if hits is None:
             results = self._search(
                 {"query": query, "max_results": _PREFETCH_RESULTS}, context=context
@@ -355,12 +539,15 @@ class AiMemoryProvider(MemoryProvider):
         return "\n\n".join(lines)
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Recall in the background so the next turn's prefetch is a cache hit.
+        """Recall in the background for the next turn.
 
-        Hermes calls this after each turn with that turn's ``session_id``;
-        Cache keys include session, search mode, workspace, project and query.
-        Scope and client are captured before dispatch; stale workers cannot
-        repopulate the cache after initialization or a session switch.
+        Hermes calls this after each turn with that turn's ``session_id`` and
+        user text, but the following ``prefetch()`` receives the *new* turn's
+        text. Results are therefore cached both under the exact query and as
+        the newest entry for session+scope, which ``prefetch()`` consumes next
+        turn even if the text changed. Scope and client are captured before
+        dispatch; stale workers cannot repopulate the cache after
+        initialization or a session switch.
         """
         if not query:
             return
@@ -368,6 +555,7 @@ class AiMemoryProvider(MemoryProvider):
         if context.search_scope == "project" and not context.scope_known:
             return
         key = context.cache_key(query)
+        scope_key = key[:4]
 
         def _do() -> None:
             try:
@@ -381,10 +569,13 @@ class AiMemoryProvider(MemoryProvider):
                 if context.generation != self._generation:
                     return
                 self._prefetch_cache[key] = hits
+                self._prefetch_latest[scope_key] = (query, hits)
                 while len(self._prefetch_cache) > _PREFETCH_CACHE_MAX:
                     self._prefetch_cache.pop(next(iter(self._prefetch_cache)))
+                while len(self._prefetch_latest) > _PREFETCH_CACHE_MAX:
+                    self._prefetch_latest.pop(next(iter(self._prefetch_latest)))
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._spawn_worker(_do, name="ai-memory-prefetch")
 
     def recall_status(self) -> RecallStatus | None:
         """Hit count from the most recent ``prefetch``, for Hermes's indicator."""
@@ -418,7 +609,7 @@ class AiMemoryProvider(MemoryProvider):
             except Exception:
                 log.warning("ai-memory sync_turn failed", exc_info=True)
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._spawn_worker(_do, name="ai-memory-sync-turn")
 
     def on_session_end(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
         context = self._snapshot()
@@ -447,7 +638,9 @@ class AiMemoryProvider(MemoryProvider):
             except Exception:
                 log.warning("ai-memory on_session_end failed", exc_info=True)
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._spawn_worker(
+            _do, name="ai-memory-session-end", join_budget=_SESSION_END_JOIN_TIMEOUT
+        )
 
     # Hermes announces built-in memory writes as add|replace|remove; write and
     # append are kept as synonyms for older callers of this hook.
@@ -477,16 +670,25 @@ class AiMemoryProvider(MemoryProvider):
         if action == "replace" and previous:
             body = f"{content}\n\n{self._REPLACED_HEADING}\n\n{previous}"
 
-        try:
-            context.client.write_page(
-                path=f"hermes-memory/{target}.md",
-                body=body,
-                tags=["hermes", "mirror"],
-                workspace=context.workspace,
-                project=context.project,
-            )
-        except Exception:
-            log.warning("on_memory_write hook failed", exc_info=True)
+        path = f"hermes-memory/{target}.md"
+
+        def _do() -> None:
+            try:
+                context.client.write_page(
+                    path=path,
+                    body=body,
+                    tags=["hermes", "mirror"],
+                    workspace=context.workspace,
+                    project=context.project,
+                )
+            except Exception:
+                log.warning("on_memory_write hook failed", exc_info=True)
+
+        # Hermes calls this INLINE in the tool loop (agent/memory_manager.py:
+        # 744-761); a 10s write timeout there would stall the user's turn.
+        # Mirror on a tracked background thread, like the bundled byterover
+        # provider does for memory writes.
+        self._spawn_worker(_do, name="ai-memory-memory-write")
 
     def on_session_switch(
         self,
@@ -508,14 +710,116 @@ class AiMemoryProvider(MemoryProvider):
             self.session_id = new_session_id
             self._generation += 1
             self._prefetch_cache.clear()
+            self._prefetch_latest.clear()
             self._last_recall_count = 0
             if reset:
                 # A reset starts a clean context; the previous session's
                 # handoff must not leak into it.
                 self._handoff_context = None
 
+    def _spawn_worker(
+        self,
+        target: Callable[[], None],
+        *,
+        name: str,
+        join_budget: float = _SHUTDOWN_JOIN_TIMEOUT,
+    ) -> None:
+        """Start provider background work through the host's context-aware spawner.
+
+        Hermes requires ``agent.memory_provider.spawn_context_thread`` so the
+        worker inherits the caller's contextvars (profile isolation and the
+        per-turn secret scope); a bare thread starts with an empty context and
+        under multiplexed profiles writes to the default profile
+        (agent/memory_provider.py:29-33,
+        website/docs/developer-guide/memory-provider-plugin.md:394-412).
+        Fall back to a daemon thread when Hermes is not importable so the
+        plugin still works standalone.
+
+        The whole check-start-track sequence runs under ``self._lock``, so a
+        thread in ``_worker_threads`` is always running or finished: shutdown()
+        can never observe a tracked-but-unstarted thread and skip it. A spawn
+        that arrives once shutdown has begun runs inline instead of creating an
+        untracked daemon that would outlive the join.
+        """
+        spawn_context_thread: Callable[..., threading.Thread] | None = None
+        try:
+            from agent.memory_provider import (  # type: ignore[import-untyped]
+                spawn_context_thread as _spawn_context_thread,
+            )
+        except Exception:
+            pass
+        else:
+            spawn_context_thread = _spawn_context_thread
+        with self._lock:
+            if self._shutting_down:
+                run_inline = True
+            else:
+                if spawn_context_thread is not None:
+                    try:
+                        thread = spawn_context_thread(target, name=name)
+                    except Exception:
+                        log.debug(
+                            "ai-memory: spawn_context_thread failed; using a daemon thread",
+                            exc_info=True,
+                        )
+                        thread = threading.Thread(target=target, name=name, daemon=True)
+                else:
+                    thread = threading.Thread(target=target, name=name, daemon=True)
+                self._prune_workers_locked()
+                thread.start()
+                # Append after start() and still under the lock: shutdown()'s
+                # snapshot therefore only sees running (or already finished)
+                # workers.
+                self._worker_threads.append(_TrackedWorker(thread, join_budget))
+                run_inline = False
+        if run_inline:
+            log.debug("ai-memory: shutdown in progress; running %s inline", name)
+            target()
+
+    def _prune_workers_locked(self) -> None:
+        """Drop finished threads before appending a new one (call under the lock)."""
+        alive: list[_TrackedWorker] = []
+        for worker in self._worker_threads:
+            try:
+                is_alive = getattr(worker.thread, "is_alive", None)
+                if is_alive is None or is_alive():
+                    alive.append(worker)
+            except Exception:
+                alive.append(worker)
+        self._worker_threads = alive
+
     def shutdown(self) -> None:
-        pass
+        """Join our background workers, bounded, before Hermes exits.
+
+        Hermes calls ``on_session_end`` and then ``shutdown_all()``; its drain
+        is bounded at 5s (``_SYNC_DRAIN_TIMEOUT_S``,
+        agent/memory_manager.py:41) and only covers the manager's own executor
+        (``_drain_sync_executor``, agent/memory_manager.py:870-905). It cannot
+        see our threads, so join them here.
+
+        Workers are joined longest-budget-first so the session-end POST (which
+        carries the client's 10s ``SESSION_END_TIMEOUT``) gets its own budget
+        instead of sharing a 5s slice with shorter workers. The overall wait is
+        capped at ``_MAX_SHUTDOWN_JOIN_TIMEOUT`` so shutdown stays bounded.
+        Finished workers are joined anyway: ``join()`` on a finished thread is
+        immediate, and an unstarted thread in the tracking list must not be
+        silently skipped.
+        """
+        with self._lock:
+            self._shutting_down = True
+            workers = self._worker_threads
+            self._worker_threads = []
+        workers.sort(key=lambda worker: worker.join_budget, reverse=True)
+        deadline = time.monotonic() + _MAX_SHUTDOWN_JOIN_TIMEOUT
+        for worker in workers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log.debug("ai-memory shutdown join budget exhausted")
+                break
+            try:
+                worker.thread.join(timeout=min(worker.join_budget, remaining))
+            except Exception:
+                log.debug("ai-memory worker join failed", exc_info=True)
 
     def _search(
         self, args: dict[str, Any], *, context: _OperationContext | None = None

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import httpx
@@ -70,9 +72,9 @@ def deferred_workers(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
     workers: list[Any] = []
 
-    def thread(*, target: Any, daemon: bool) -> SimpleNamespace:
+    def thread(*, target: Any, daemon: bool, name: str = "") -> SimpleNamespace:
         assert daemon
-        return SimpleNamespace(start=lambda: workers.append(target))
+        return SimpleNamespace(start=lambda: workers.append(target), is_alive=lambda: False)
 
     monkeypatch.setattr("provider.threading.Thread", thread)
     return workers
@@ -161,6 +163,8 @@ def monorepo(tmp_path: Path) -> Path:
     app = root / "apps" / "socorro_financeiro"
     (app / "src").mkdir(parents=True)
     (root / "src").mkdir()
+    # tmp_path is outside $HOME; this checkout root is the walk boundary.
+    (root / ".git").mkdir()
     (root / ".ai-memory.toml").write_text(
         'workspace = "imperio"\nproject = "imperio_2026"\n'
     )
@@ -202,6 +206,9 @@ def test_nearest_toml_routes_search_writes_handoff_and_hooks(
     }
     provider._write({"path": "note.md", "body": "test"})
     provider.on_memory_write("add", "memory", "test")
+    # The mirror is now background work (D4), so drain it before inspecting the
+    # two synchronous write-page requests.
+    deferred_workers.pop()()
     for request in requests[-2:]:
         body = json.loads(request.content)
         assert (body["workspace"], body["project"]) == (workspace, project)
@@ -320,17 +327,32 @@ def test_initialize_without_home_honors_search_scope_environment(
     assert requests[-1].url.params["project"] == "imperio_2026"
 
 
-@pytest.mark.parametrize("marker", ['workspace = "ws"\n', 'project = ""\n'])
-def test_incomplete_marker_does_not_authorize_default_project_writes(
+@pytest.mark.parametrize(
+    ("marker", "writes_allowed"),
+    [
+        # Upstream derives the missing project (here: basename) instead of
+        # disabling the marker's whole scope.
+        ('workspace = "ws"\n', True),
+        ('project = ""\n', False),
+    ],
+)
+def test_marker_without_pinned_project_derives_or_stays_unscoped(
     tmp_path: Path,
     http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
     marker: str,
+    writes_allowed: bool,
 ) -> None:
     provider, requests = http_provider
     (tmp_path / ".ai-memory.toml").write_text(marker)
     provider.initialize("incomplete", cwd=str(tmp_path), agent_identity="profile")
-    assert not provider._write({"path": "note.md", "body": "private"})["ok"]
-    assert not requests
+    result = provider._write({"path": "note.md", "body": "private"})
+    assert result["ok"] is writes_allowed
+    if writes_allowed:
+        payload = json.loads(requests[-1].content)
+        assert payload["workspace"] == "ws"
+        assert payload["project"] == tmp_path.name
+    else:
+        assert not requests
 
 
 def test_cache_is_not_reused_between_search_modes(
@@ -378,3 +400,171 @@ def test_failed_reinitialize_cannot_write_to_previous_project(
         provider.initialize("new", hermes_home=str(tmp_path))
     assert not provider._write({"path": "note.md", "body": "must not leak"})["ok"]
     assert not requests
+
+
+# ------------------------------------------------------ runtime cwd resolution
+def _install_runtime_cwd(monkeypatch: pytest.MonkeyPatch, directory: Path) -> None:
+    """Fake the guarded ``agent.runtime_cwd`` import without installing Hermes."""
+    agent_module = ModuleType("agent")
+    agent_module.__path__ = []
+    runtime_module = ModuleType("agent.runtime_cwd")
+    setattr(runtime_module, "resolve_agent_cwd", lambda: directory)
+    monkeypatch.setitem(sys.modules, "agent", agent_module)
+    monkeypatch.setitem(sys.modules, "agent.runtime_cwd", runtime_module)
+
+
+def test_initialize_without_cwd_uses_runtime_resolver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    """Hermes omits ``cwd`` on the interactive CLI; resolving it must restore writes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".ai-memory.toml").write_text('workspace = "ws"\n')
+    _install_runtime_cwd(monkeypatch, repo)
+
+    provider, requests = http_provider
+    provider.initialize("session")
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["cwd_source"] == "runtime"
+    assert diagnostics["cwd_normalized"] == str(repo)
+    assert diagnostics["workspace_source"] == "marker"
+    assert diagnostics["project_source"] == "derived"
+    assert diagnostics["scope_known"] is True
+    assert diagnostics["writes_allowed"] is True
+    assert provider._write({"path": "note.md", "body": "ok"})["ok"]
+    assert json.loads(requests[-1].content)["project"] == "repo"
+
+
+def test_ai_memory_cwd_overrides_kwarg_and_runtime_resolver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    env_dir = tmp_path / "env-dir"
+    kwarg_dir = tmp_path / "kwarg-dir"
+    runtime_dir = tmp_path / "runtime-dir"
+    for directory, workspace in (
+        (env_dir, "env-ws"),
+        (kwarg_dir, "kwarg-ws"),
+        (runtime_dir, "runtime-ws"),
+    ):
+        directory.mkdir()
+        (directory / ".ai-memory.toml").write_text(f'workspace = "{workspace}"\n')
+    _install_runtime_cwd(monkeypatch, runtime_dir)
+    monkeypatch.setenv("AI_MEMORY_CWD", str(env_dir))
+
+    provider, requests = http_provider
+    provider.initialize("session", cwd=str(kwarg_dir))
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["cwd_source"] == "environment"
+    assert diagnostics["cwd_received"] == str(env_dir)
+    assert diagnostics["workspace"] == "env-ws"
+    assert diagnostics["project"] == "env-dir"
+    assert provider._write({"path": "note.md", "body": "ok"})["ok"]
+    payload = json.loads(requests[-1].content)
+    assert (payload["workspace"], payload["project"]) == ("env-ws", "env-dir")
+
+
+def test_nothing_resolvable_stays_read_only_and_is_diagnosable(
+    monkeypatch: pytest.MonkeyPatch,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    monkeypatch.delenv("AI_MEMORY_CWD", raising=False)
+    monkeypatch.setitem(sys.modules, "agent", None)
+
+    provider, requests = http_provider
+    provider.initialize("session")
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["cwd_source"] == ""
+    assert diagnostics["cwd_received"] == ""
+    assert diagnostics["cwd_normalized"] == ""
+    assert diagnostics["workspace_source"] == ""
+    assert diagnostics["project_source"] == ""
+    assert diagnostics["scope_known"] is False
+    assert diagnostics["writes_allowed"] is False
+    assert not provider._write({"path": "note.md", "body": "private"})["ok"]
+    assert not requests
+
+
+# --------------------------------------------------------- scope authorization
+def test_workspace_only_marker_derives_project_and_authorizes_writes(
+    tmp_path: Path,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    """Upstream markers require workspace, project is optional; a derived project
+    is a legitimate scope and must no longer disable every write."""
+    (tmp_path / ".ai-memory.toml").write_text('workspace = "ws"\n')
+
+    provider, requests = http_provider
+    provider.initialize("session", cwd=str(tmp_path))
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["workspace"] == "ws"
+    assert diagnostics["workspace_source"] == "marker"
+    assert diagnostics["project"] == tmp_path.name
+    assert diagnostics["project_source"] == "derived"
+    assert diagnostics["scope_known"] is True
+    assert diagnostics["writes_allowed"] is True
+    assert provider._write({"path": "note.md", "body": "ok"})["ok"]
+    payload = json.loads(requests[-1].content)
+    assert (payload["workspace"], payload["project"]) == ("ws", tmp_path.name)
+
+
+def test_dataclass_default_project_without_provenance_stays_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    monkeypatch.delenv("AI_MEMORY_CWD", raising=False)
+    monkeypatch.setitem(sys.modules, "agent", None)
+
+    provider, requests = http_provider
+    provider.initialize("session")
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["project"] == "hermes-default"
+    assert diagnostics["project_source"] == ""
+    assert diagnostics["scope_known"] is False
+    assert diagnostics["writes_allowed"] is False
+    assert not provider._write({"path": "note.md", "body": "private"})["ok"]
+    assert not requests
+
+
+def test_explicit_project_outranks_a_derived_one(
+    tmp_path: Path,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    (tmp_path / ".ai-memory.toml").write_text('workspace = "ws"\n')
+
+    provider, _ = http_provider
+    provider.initialize("session", cwd=str(tmp_path), project="pinned-project")
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["workspace_source"] == "marker"
+    assert diagnostics["project"] == "pinned-project"
+    assert diagnostics["project_source"] == "explicit"
+    assert diagnostics["scope_known"] is True
+
+
+def test_marker_project_outranks_derivation(
+    tmp_path: Path,
+    http_provider: tuple[AiMemoryProvider, list[httpx.Request]],
+) -> None:
+    root = tmp_path / "repo"
+    nested = root / "src"
+    nested.mkdir(parents=True)
+    (root / ".git").mkdir()
+    (root / ".ai-memory.toml").write_text('workspace = "ws"\nproject = "pinned"\n')
+
+    provider, _ = http_provider
+    provider.initialize("session", cwd=str(nested))
+    diagnostics = provider.scope_diagnostics()
+
+    assert diagnostics["workspace_source"] == "marker"
+    assert diagnostics["project"] == "pinned"
+    assert diagnostics["project_source"] == "marker"
+    assert diagnostics["scope_known"] is True

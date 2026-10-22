@@ -1,14 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.4] — 2026-10-21
+
+### Changed (breaking)
+
+- **Session directory fallback.** Hermes only passes `cwd` to a provider when `agent.session_cwd` is set, which the interactive CLI does not do, so the provider was normally read-only. It now resolves the session directory as `AI_MEMORY_CWD` > Hermes `cwd` kwarg > `agent.runtime_cwd.resolve_agent_cwd()` (guarded import). The directory must still be absolute and existing; there is no `os.getcwd()` fallback.
+- **Workspace-only marker.** A `.ai-memory.toml` that pins `workspace` but not `project` now derives the project from the checkout's git remote (`upstream`, else `origin`) as the hostless repository path, lowercased, with `/` written as `-` (`git@github.com:Acme/API.git` → `acme-api`), or `basename(cwd)` when there is no valid remote. ai-memory project names never contain `/`. Such repositories previously resolved no project and silently stayed read-only while recall still worked.
+- **Migration:** new memories for those repositories land in the derived project (for example `acme-movvia`), so pages previously written under `hermes` / `hermes-default` are no longer found by project-scoped recall. They remain in ai-memory under the old project. Pin the old scope with `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`, `ai-memory.json`, or the initialization kwargs; `scope_diagnostics()` reports the resolved values and provenance.
 
 ### Added
 
+- `AI_MEMORY_CWD` overrides the session directory supplied by Hermes or `resolve_agent_cwd()`.
+- `config.resolve_scope(cwd, *, explicit_workspace="", explicit_project="")` — explicit > marker > derived per field, returning `workspace`, `project`, `workspace_source`, `project_source` and `source`. Writes are authorized only for an `explicit`/`marker` project, or a `derived` project whose workspace is `explicit`/`marker`.
+- `scope_diagnostics()` now also reports `cwd_source`, `workspace_source` and `project_source` alongside the existing scope and authorization fields.
 - Session-start handoff now forwards the repository marker's `[briefing] inject_on_session_start` opt-in (and optional `max_chars` budget) as `briefing` / `briefing_budget`, so Hermes receives the compiled project brief the official hook clients already get. `config.marker_briefing()` walks from the session `cwd` through capture-only markers and stops at the nearest settings marker, matching ai-memory's own resolution; the provider now passes `cwd` on the handoff fetch. Off unless the repository opts in.
 - Optional `search_scope=project` / `AI_MEMORY_SEARCH_SCOPE=project` restricts tools and both recall paths to the resolved workspace/project; global recall remains the default.
 - `AiMemoryProvider.scope_diagnostics()` and initialization logs expose local directory/scope state without network calls, credentials, or memory contents.
 
-- `.ai-memory.toml` scope resolution — `config.marker_scope()` walks up from the session's `cwd` (stopping at `$HOME` or the filesystem root) and reads `workspace`/`project` with ai-memory's own line-based parser; a marker that pins no scope key is skipped, matching the server's walk-up.
+- `.ai-memory.toml` scope resolution — `config.marker_scope()` walks up from the session's `cwd` and reads `workspace`/`project` with ai-memory's own line-based parser. The walk stops at `$HOME` inside it or at the nearest checkout root outside it; a capture-only marker is transparent and the first marker declaring any other setting is the boundary.
 - `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT` env vars, honoured in `load_config()`, in `register()`, and in the scope precedence. Config reads now go through one shared helper, which also stops a `hermes_home`-less call from reading a cwd-relative `ai-memory.json`.
 - `config.explicit_scope_keys()` — which scope keys the operator set explicitly, so a configured value beats the repository marker.
 - `AiMemoryProvider.recall_status()` — the last `prefetch()`'s hit count, so Hermes can render its recall indicator for ai-memory.
@@ -32,12 +41,22 @@
 
 ### Fixed
 
-- Unknown project scope blocks writes, lifecycle hooks, and handoff consumption; project-mode recall returns no results. Directory routing requires an absolute, existing session directory supplied by Hermes, and does not fall back to the process cwd.
+- `.ai-memory.toml` is read as UTF-8 with an optional BOM; a leading BOM no longer hides a first-line `workspace`/`project`.
+- Marker walk rules match upstream: the boundary is the first marker that declares more than `[capture]` (`[briefing]`-only is a boundary, routes-only is transparent), and the walk stops at `$HOME` inside it or at the nearest checkout root outside it, checking only `cwd` when that directory is not in a checkout.
+- Background work (turn sync, session end, recall, memory mirroring) now runs through one helper that prefers Hermes' `agent.memory_provider.spawn_context_thread` and falls back to a daemon thread. Threads are tracked and `shutdown()` joins them under a bounded 5s deadline, since Hermes calls `on_session_end` then `shutdown_all()` and its own drain cannot see them.
+- `on_memory_write` mirroring is asynchronous and no longer blocks the caller's turn.
+- Search timeout is 5s, deliberately under Hermes' ~8s external-prefetch abandonment bound.
+- `write_page` requires both `workspace` and `project` and fails locally with a clear error instead of sending an incomplete body for the server to reject.
+- Prefetch keeps the newest queued recall per session+scope (plus an exact-query alias), so the next turn's `prefetch` consumes it even though Hermes queues with one turn's text and prefetches with the next.
+- `fetch_handoff` treats HTTP 200 with an empty body as no handoff (upstream's real signal, not 404), leaves a `403` as an error, and uses a 2.0s timeout.
+- `search` never sends a lone `workspace` or `project`; upstream rejects the pair-less scope with HTTP 400.
+- `save_config` still returns the list of skipped secret keys (upstream declares `-> None`); documented as this provider's real return rather than the upstream signature.
+- Unknown project scope blocks writes, lifecycle hooks, and handoff consumption; project-mode recall returns no results. Directory routing requires an absolute, existing session directory and does not fall back to the process cwd.
 - Background operations capture their client and scope, and obsolete recall workers cannot populate the cache after reinitialization or a session switch.
 - New setup/install/update defaults omit fixed workspace/project overrides. In project mode, narrowly matched legacy-generated defaults allow directory routing, while `scope_origin=explicit` preserves an intentional fixed pair.
 - Configuration loading is shared by registration, initialization, and the CLI, and accepts UTF-8 BOM files generated by Windows PowerShell.
 
-- `AiMemoryProvider.queue_prefetch()` now accepts the `session_id` keyword Hermes passes (`MemoryManager.queue_prefetch_all`), so the background recall actually runs and the next turn's `prefetch()` is a cache read. Results are cached per `(session_id, query)` and consumed once.
+- `AiMemoryProvider.queue_prefetch()` now accepts the `session_id` keyword Hermes passes (`MemoryManager.queue_prefetch_all`), so the background recall actually runs and the next turn's `prefetch()` can consume it. Results are cached per exact query and as the newest entry per session+scope.
 - `AiMemoryProvider.on_memory_write()` now mirrors `add` and `replace` — the actions Hermes announces (its `_MIRRORED_MEMORY_ACTIONS`). The old `write`/`append` gate matched nothing, so no built-in `MEMORY.md` / `USER.md` write was ever mirrored; `write`/`append` stay accepted as synonyms for older callers. A `replace` keeps the superseded entry under `## Substituído`, and `remove` is skipped.
 - The tool schemas now use the `parameters` key Hermes normalizes (`MemoryProvider.get_tool_schemas`) instead of `input_schema`, which reached the model as a function with no argument list.
 - `initialize()` no longer lets Hermes's `agent_workspace` literal (`"hermes"`) clobber the scope: the checkout's `.ai-memory.toml` is adopted, so Hermes writes the same ai-memory project the other agents in that repository use. An explicit `workspace`/`project` (kwargs, `ai-memory.json`, or `AI_MEMORY_*` env vars) still wins, and a caller reporting no `cwd` keeps the configured scope.
@@ -59,6 +78,11 @@
 
 ### Documentation
 
+- Corrected activation instructions across the READMEs, guide, and troubleshooting: `hermes plugins enable ai-memory` only loads the plugin; `hermes memory setup` (or `memory.provider: ai-memory`) activates it, and `plugins.enabled` is unrelated to memory-provider activation.
+- Rewrote `docs/directory-scope-windows.md` for the session-directory fallback and the new `scope_diagnostics()` provenance keys.
+- Corrected `docs/reference.md`: search hits expose `rank` (no `score`); `write_page` returns `page_id` with no `ok` field; handoff uses a 2.0s timeout and the empty-200-body no-handoff signal; `search` scope is all-or-nothing; `save_config` is documented with this provider's return value, not upstream's `-> None`.
+- Documented the workspace-only marker resolution, its authorization rule table, and the migration path to the derived project.
+- Updated the verified upstream contract to ai-memory 3.2.0 (3.x); stale 1.28.1 references in `tests/test_1281_compat.py` and `tests/conftest.py` are corrected without renaming files or tests. Bumped `plugin.yaml` and `pyproject.toml` to `0.1.4`.
 - Updated `README.md`, `docs/guide.md`, `docs/reference.md`, and `docs/common-problems.md` for the corrected contracts: background prefetch and its per-session cache, the `add`/`replace` mirroring vocabulary, the minimal `session-end` payload, scope resolution through `.ai-memory.toml`, the `hermes ai-memory …` command names and the `counts` shape of `status`, and the client pause.
 - Added a "Scope Resolution" section to `docs/reference.md`.
 

@@ -4,15 +4,15 @@ Connects [Hermes Agent](https://github.com/NousResearch/hermes-agent) to [ai-mem
 
 ## Features
 
-- **Background prefetch** — each turn's recall search runs on a daemon thread after the turn and is injected before the next one
-- **Turn capture** — async daemon-thread sync after each completed turn
+- **Background prefetch** — each turn's recall search runs on a tracked background worker after the turn and is injected before the next one
+- **Turn capture** — background sync after each completed turn
 - **Session finalization** — `session-end` hook on conversation close (the session id only, never the transcript)
-- **Memory mirroring** — built-in `MEMORY.md` / `USER.md` writes (`add`, `replace`) mirrored to the ai-memory wiki
+- **Memory mirroring** — built-in `MEMORY.md` / `USER.md` writes (`add`, `replace`) mirrored to the ai-memory wiki asynchronously
 - **Hermes CLI integration** — `hermes memory setup` plus the plugin's own `hermes ai-memory status | config | config-set | link | update`
-- **Scope that matches the other agents** — explicit config, then the checkout's `.ai-memory.toml`, then the Hermes profile
+- **Scope that matches the other agents** — explicit config, then the nearest `.ai-memory.toml`, then a project derived from the checkout's git remote (or directory name)
 - **Safe in non-primary runs** — cron/subagent providers neither write nor consume the single-use handoff
 - **3 tool schemas** — `ai_memory_search`, `ai_memory_write`, `ai_memory_status`
-- **94% test coverage** — linted with ruff, type-checked with mypy
+- **277 passing tests** (3 skipped) — linted with ruff, type-checked with mypy
 
 ## Quick Start
 
@@ -20,13 +20,17 @@ Connects [Hermes Agent](https://github.com/NousResearch/hermes-agent) to [ai-mem
 # Quick install via script (Linux/macOS)
 bash <(curl -sL https://raw.githubusercontent.com/MrLuciano/ai-memory-hermes-plugin/main/scripts/install.sh)
 
-# Enable and configure
+# Load the plugin (registers it with Hermes)
 hermes plugins enable ai-memory
+
+# Activate it as the memory provider (sets memory.provider)
 hermes memory setup
 
 # Verify
 hermes memory status
 ```
+
+`hermes plugins enable ai-memory` only makes the plugin available; it does not activate a memory provider. `plugins.enabled` is unrelated to memory-provider activation, and Hermes skips `exclusive` plugins in the general enabled-check. Activation is `hermes memory setup` (which sets `memory.provider`) or `memory.provider: ai-memory` in `config.yaml`; the plugin must also be enabled so Hermes loads it at all.
 
 Or download and run `scripts/install.sh` (Linux/macOS) or `scripts/install.ps1` (Windows) from the repository.
 
@@ -52,12 +56,14 @@ Hermes Agent → MemoryProvider ABC → AiMemoryProvider → AiMemoryClient → 
 | `is_available()` | Checks `server_url` is configured | Sync |
 | `initialize()` | Resolves workspace/project, fetches the handoff once | Sync |
 | `prefetch(query, session_id)` | Consumes `queue_prefetch`'s cache, else `GET /admin/search` | Sync |
-| `queue_prefetch(query, session_id)` | `GET /admin/search` cached for the next turn | Daemon thread |
+| `queue_prefetch(query, session_id)` | `GET /admin/search` cached for the next turn | Background worker |
 | `recall_status()` | Hit count of the last `prefetch`, for the recall indicator | Sync |
-| `sync_turn(user, assistant)` | `POST /hook?event=user-prompt-submit` | Daemon thread |
-| `on_session_end(messages)` | `POST /hook?event=session-end` (session id only) | Daemon thread |
-| `on_memory_write(action, target, content)` | `POST /admin/write-page` for `add` / `replace` | Sync |
+| `sync_turn(user, assistant)` | `POST /hook?event=user-prompt-submit` | Background worker |
+| `on_session_end(messages)` | `POST /hook?event=session-end` (session id only) | Background worker |
+| `on_memory_write(action, target, content)` | `POST /admin/write-page` for `add` / `replace` | Background worker (async) |
 | `handle_tool_call(name, args)` | Routes to search/write/status | Sync |
+
+Background workers prefer Hermes' `agent.memory_provider.spawn_context_thread` (contextvars, profile isolation) and fall back to a daemon thread when Hermes is not importable. Threads are tracked, and `shutdown()` joins them under a bounded 5s deadline so a session-end POST is not killed at process exit.
 
 ## Configuration
 
@@ -70,6 +76,7 @@ Hermes Agent → MemoryProvider ABC → AiMemoryProvider → AiMemoryClient → 
 | `AI_MEMORY_AUTH_TOKEN` | `""` | Auth token (alias for api_key) — **env-only, never written to disk** |
 | `AI_MEMORY_WORKSPACE` | `""` | Workspace name, overriding the file and the `.ai-memory.toml` marker |
 | `AI_MEMORY_PROJECT` | `""` | Project name, overriding the file and the `.ai-memory.toml` marker |
+| `AI_MEMORY_CWD` | `""` | Session directory, overriding the Hermes `cwd` kwarg and `resolve_agent_cwd()` |
 | `AI_MEMORY_SEARCH_SCOPE` | `global` | Search/recall mode: `global` or `project` |
 
 Env vars override file config, which overrides defaults. Secrets (`api_key`, `auth_token`) are **never persisted to `ai-memory.json`** — they must be set via environment variables.
@@ -89,9 +96,47 @@ Written by `hermes memory setup` wizard. Only non-secret values are stored:
 
 `search_scope` is optional: `global` preserves legacy searches across all projects; `project` restricts search tools and both recall paths to the resolved project. For folder isolation with a single profile, use `{"search_scope": "project"}` and omit fixed workspace/project overrides so the markers can route each new session. A nested marker in `imperio_2026/apps/socorro_financeiro` takes precedence over the root marker.
 
-When scope is unknown, project searches return no results and writes (including mirrors, lifecycle hooks and handoff consumption) are blocked. An explicitly configured default project remains supported. Resolved scope from a previous initialization is never a fallback for the next one.
+When the resolved directory is unusable, or neither workspace nor project resolves, project searches return no results and writes (including mirrors, lifecycle hooks and handoff consumption) are blocked. A configured non-default project remains supported. Resolved scope from a previous initialization is never a fallback for the next one.
 
-**Changing folders during an existing session does not update this provider's scope.** Start a new provider/session initialized with the target directory; switching the session ID alone is insufficient. The plugin never infers the session directory from `os.getcwd()`. See [Scope Resolution](docs/reference.md#scope-resolution).
+### Session directory
+
+Hermes only adds `cwd` to the provider initialization kwargs when `agent.session_cwd` is set; the interactive CLI does not set it. The plugin resolves the session directory in this order:
+
+1. `AI_MEMORY_CWD` (explicit override)
+2. the `cwd` kwarg from Hermes
+3. `agent.runtime_cwd.resolve_agent_cwd()` (guarded import; unavailable when Hermes is not importable)
+
+The directory must be absolute and existing. The plugin never falls back to `os.getcwd()`, and an invalid `AI_MEMORY_CWD` fails closed rather than falling through to another directory. `scope_diagnostics()["cwd_source"]` reports which path was used: `environment`, `kwargs`, `runtime`, or empty when nothing resolved.
+
+### Scope resolution and provenance
+
+`config.resolve_scope(cwd, *, explicit_workspace="", explicit_project="")` resolves each field with precedence **explicit > marker > derived** and returns `workspace`, `project`, `workspace_source` / `project_source` (`explicit`, `marker`, `derived`, or empty) and `source`.
+
+- **Explicit** — `workspace`/`project` in `ai-memory.json`, `AI_MEMORY_WORKSPACE`/`AI_MEMORY_PROJECT`, or initialization kwargs.
+- **Marker** — the nearest `.ai-memory.toml` settings boundary at or above the session directory. A capture-only marker is transparent; the first marker that declares any other setting is the boundary, so an outer project does not leak through a `[briefing]`-only or otherwise settings-bearing marker.
+- **Derived** — when the marker pins `workspace` but no `project`, the project comes from the checkout's git remote (`upstream`, else `origin`), normalized to the hostless repository path, lowercased, with `/` written as `-` (`git@github.com:acme/movvia.git` → `acme-movvia`; project names never contain `/`). With no valid remote, `basename(cwd)` is used.
+
+Writes, mirroring, turn/session hooks and handoff consumption are authorized only when workspace and project both resolve non-empty and:
+
+| Project provenance | Workspace provenance | Writes |
+|---|---|---|
+| `explicit` or `marker` | any | yes |
+| `derived` | `explicit` or `marker` | yes |
+| `derived` | empty | no (read-only) |
+| empty (dataclass default only) | any | no (read-only) |
+
+An unusable directory resolves no scope and stays read-only. A project that is only the dataclass default (`hermes-default`) with no provenance does not authorize writes, and neither does a derived project with no explicit/marker workspace. A repository therefore needs **either** an `.ai-memory.toml` marker pinning `workspace` **or** an explicit `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT` pin before the plugin can write memory; without one it is intentionally read-only.
+
+### Migration: workspace-only markers
+
+`.ai-memory.toml` marks `workspace` as required and `project` as optional. Before 0.1.4 the plugin required an explicit project, so the documented workspace-only marker silently made the session read-only (recall still worked, so the failure was invisible). The plugin now derives the project, which is a breaking change for existing data:
+
+- New memories for a repository that previously resolved no project now land in the git-remote-derived ai-memory project (for example `acme-movvia`).
+- Anything previously written under `hermes` / `hermes-default` for such a repository is no longer found by project-scoped recall. Those pages still exist in ai-memory under the old project.
+- Inspect the resolved scope and its provenance with `scope_diagnostics()` (see [Windows directory scope](docs/directory-scope-windows.md)).
+- To keep the previous scope, pin it explicitly via `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`, `workspace`/`project` in `$HERMES_HOME/ai-memory.json`, or the initialization kwargs. Explicit values override marker and derivation.
+
+**Changing folders during an existing session does not update this provider's scope.** Start a new provider/session initialized with the target directory; switching the session ID alone is insufficient. The plugin resolves the session directory at initialization (see [Session directory](#session-directory)) and never infers it from `os.getcwd()`. See [Scope Resolution](docs/reference.md#scope-resolution).
 
 ### Legacy scope defaults and explicit overrides
 
@@ -101,7 +146,7 @@ For old files, a narrow compatibility rule applies **only in project mode** (inc
 
 The old format cannot prove whether an identical pair was installed automatically or typed manually. For an intentional fixed pair, set `hermes ai-memory config-set scope_origin explicit` **before enabling project mode**, or re-save the workspace/project with `config-set`. Saving a nonblank scope via setup/CLI records `scope_origin=explicit`; `automatic` is also accepted, but never demotes customized values. Blank scope inputs remove those file overrides. Invalid origin/policy values are rejected before saving.
 
-For automatic folder routing, set `hermes ai-memory config-set search_scope project` and leave scope overrides unset. Each new provider must receive the intended absolute directory; scope does not change dynamically within an existing provider.
+For automatic folder routing, set `hermes ai-memory config-set search_scope project` and leave scope overrides unset. Each new provider resolves the intended absolute directory from `AI_MEMORY_CWD`, the Hermes `cwd` kwarg, or `resolve_agent_cwd()`; scope does not change dynamically within an existing provider.
 
 ### Secrets & Security
 
@@ -164,11 +209,16 @@ plugins/memory/ai-memory/
 ├── cli.py            # CLI subcommands
 └── README.md         # In-plugin readme
 tests/
-├── test_config.py    # 12 tests
-├── test_client.py    # 16 tests
-├── test_provider.py  # 29 tests
-├── test_entry.py     # 10 tests
-└── test_cli.py       # 7 tests
+├── test_config.py           # 29 tests
+├── test_client.py           # 32 tests
+├── test_provider.py         # 48 tests
+├── test_entry.py            # 14 tests
+├── test_cli.py              # 18 tests
+├── test_1281_compat.py      # 38 tests
+├── test_legacy_scope.py     # 24 tests
+├── test_directory_scope.py  # 39 tests
+├── test_scope_derivation.py # 29 tests
+└── test_cwd_diagnostics.py  # 9 tests
 ```
 
 ## Requirements
@@ -177,6 +227,8 @@ tests/
 - Hermes Agent with plugin support
 - ai-memory server (HTTP API at port 49374)
 - `httpx >= 0.28`
+
+The HTTP contract (routes, event names, the `prompt` body field, markdown handoff, Bearer auth and the `counts` status keys) is verified against ai-memory **3.2.0 (3.x)**.
 
 ## Deployment
 

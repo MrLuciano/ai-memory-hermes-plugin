@@ -91,7 +91,7 @@ def mock_transport() -> httpx.MockTransport:
         if "/hook" in request.url.path:
             return httpx.Response(200, json={"ok": True})
         if "/handoff" in request.url.path:
-            # ai-memory 1.28.1 returns markdown, not a JSON envelope.
+            # ai-memory 3.x (verified against 3.2.0) returns markdown, not JSON.
             return httpx.Response(200, text="test handoff")
         return httpx.Response(404)
 

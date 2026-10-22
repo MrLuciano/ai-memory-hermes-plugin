@@ -25,6 +25,8 @@ def test_legacy_defaults_route_to_nearest_marker(
     app = root / "apps" / "socorro_financeiro"
     (root / "src").mkdir(parents=True)
     (app / "src").mkdir(parents=True)
+    # tmp_path is outside $HOME; this checkout root is the walk boundary.
+    (root / ".git").mkdir()
     (root / ".ai-memory.toml").write_text('workspace = "imperio"\nproject = "imperio_2026"\n')
     (app / ".ai-memory.toml").write_text(
         'workspace = "financeiro"\nproject = "socorro_financeiro"\n'

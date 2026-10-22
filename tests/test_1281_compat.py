@@ -1,9 +1,10 @@
-"""Regression tests for the ai-memory 1.28.1 compatibility fixes.
+"""Regression tests for the ai-memory HTTP contract.
 
-Each test here pins one behaviour that was broken against a real
-ai-memory 1.28.1 server: a wrong endpoint, a payload shape the server
-accepted and then dropped, or scoping derived from kwargs Hermes never
-sends.
+Each test here pins one behaviour that was broken against an early
+ai-memory server: a wrong endpoint, a payload shape the server accepted
+and then dropped, or scoping derived from kwargs Hermes never sends. The
+wire contract was re-verified against ai-memory 3.2.0 (3.x) and is
+unchanged.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def offline_provider(cfg: AiMemoryConfig, monkeypatch: pytest.MonkeyPatch) -> Ai
 
 
 def _wait_for_hook(provider: AiMemoryProvider, timeout: float = 2.0) -> None:
-    """sync_turn/on_session_end fire on a daemon thread; wait for the call."""
+    """sync_turn/on_session_end fire on a background worker; wait for the call."""
     import time
 
     deadline = time.time() + timeout
@@ -75,7 +76,12 @@ def _capture(client: AiMemoryClient, response: httpx.Response) -> list[httpx.Req
 
 # --------------------------------------------------------------- 1. endpoint
 def test_search_uses_admin_search_not_api_v1(cfg: AiMemoryConfig) -> None:
-    """POST /api/v1/search 404s on 1.28.1; the route is GET /admin/search."""
+    """Use the always-mounted GET /admin/search, not the opt-in /api/v1 route.
+
+    ``/api/v1/search`` exists (GET and POST), but the ``/api/v1`` router is
+    only mounted with ``--enable-api`` / ``--enable-web``, both off by
+    default, so it 404s on a default install.
+    """
     client = AiMemoryClient(cfg)
     seen = _capture(client, httpx.Response(200, json=[]))
     client.search("anything")
@@ -379,6 +385,7 @@ def test_marker_scope_beats_the_hermes_workspace_literal(
     Letting it win pinned every session to a project that no other agent in the
     same repository writes to, which is what broke cross-agent handoff.
     """
+    (tmp_path / ".git").mkdir()
     (tmp_path / ".ai-memory.toml").write_text('workspace = "default"\nproject = "Caminhar"\n')
     checkout = tmp_path / "app"
     checkout.mkdir()

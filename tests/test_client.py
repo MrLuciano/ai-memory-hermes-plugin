@@ -63,7 +63,9 @@ def test_client_write_page_success(client: AiMemoryClient) -> None:
         return httpx.Response(200, json={"ok": True, "path": "notes/test.md"})
 
     client._transport = httpx.MockTransport(handler)
-    result = client.write_page("notes/test.md", "# Hello")
+    result = client.write_page(
+        "notes/test.md", "# Hello", workspace="hermes", project="hermes-test"
+    )
     assert result["ok"] is True
 
 
@@ -74,8 +76,42 @@ def test_client_write_page_with_tags(client: AiMemoryClient) -> None:
         return httpx.Response(200, json={"ok": True})
 
     client._transport = httpx.MockTransport(handler)
-    result = client.write_page("notes/test.md", "# Hello", tags=["test", "docs"])
+    result = client.write_page(
+        "notes/test.md",
+        "# Hello",
+        tags=["test", "docs"],
+        workspace="hermes",
+        project="hermes-test",
+    )
     assert result["ok"] is True
+
+
+def test_client_write_page_always_sends_required_scope(client: AiMemoryClient) -> None:
+    # Upstream declares workspace/project as required strings, so both must
+    # be present even when the caller passes them positionally-empty.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["workspace"] == "hermes"
+        assert body["project"] == "hermes-test"
+        return httpx.Response(200, json={"ok": True})
+
+    client._transport = httpx.MockTransport(handler)
+    client.write_page("notes/test.md", "# Hello", workspace="hermes", project="hermes-test")
+
+
+@pytest.mark.parametrize(
+    ("workspace", "project"),
+    [("", "hermes-test"), ("hermes", ""), ("", ""), ("   ", "hermes-test")],
+)
+def test_client_write_page_rejects_missing_scope(
+    client: AiMemoryClient, workspace: str, project: str
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not run
+        raise AssertionError("write_page must not hit the wire without a scope")
+
+    client._transport = httpx.MockTransport(handler)
+    with pytest.raises(ValueError, match="workspace and project"):
+        client.write_page("notes/test.md", "# Hello", workspace=workspace, project=project)
 
 
 def test_client_status_success(client: AiMemoryClient) -> None:
@@ -125,7 +161,7 @@ def test_client_send_hook_does_not_raise(client: AiMemoryClient) -> None:
 
 
 def test_client_fetch_handoff_returns_summary(client: AiMemoryClient) -> None:
-    # ai-memory 1.28.1 serves the handoff as a markdown block.
+    # ai-memory 3.x (verified against 3.2.0) serves the handoff as markdown.
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text="  Continue working on X  ")
 
@@ -261,6 +297,14 @@ def test_client_search_uses_search_timeout(client: AiMemoryClient) -> None:
     )
 
 
+def test_client_search_timeout_stays_under_hermes_prefetch_bound() -> None:
+    # Hermes abandons a provider prefetch after 8s
+    # (agent/memory_manager.py:42), so the search budget must sit below it.
+    assert SEARCH_TIMEOUT < 8.0
+    # Session end is not a prefetch and keeps its longer write budget.
+    assert SESSION_END_TIMEOUT > SEARCH_TIMEOUT
+
+
 def test_client_send_hook_uses_hook_timeout(client: AiMemoryClient) -> None:
     client._request = MagicMock()
     client._request.return_value = _ok_response({"ok": True})
@@ -300,7 +344,14 @@ def test_client_write_page_with_tier_and_pinned(client: AiMemoryClient) -> None:
         return httpx.Response(200, json={"ok": True})
 
     client._transport = httpx.MockTransport(handler)
-    result = client.write_page("notes/test.md", "# Hello", tier="semantic", pinned=True)
+    result = client.write_page(
+        "notes/test.md",
+        "# Hello",
+        tier="semantic",
+        pinned=True,
+        workspace="hermes",
+        project="hermes-test",
+    )
     assert result["ok"] is True
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "ai-memory-hermes-plugin"
-version = "0.1.0"
+version = "0.1.4"
 description = "Hermes Agent memory provider backed by ai-memory"
 requires-python = ">=3.10"
 dependencies = ["httpx>=0.28"]

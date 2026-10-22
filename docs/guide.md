@@ -34,26 +34,28 @@ uv pip install --system -e /path/to/ai-memory-hermes-plugin
 cp -r plugins/memory/ai-memory/* "$HERMES_HOME/plugins/ai-memory/"
 ```
 
-### 3. Enable in Hermes
+### 3. Load the plugin
 
 ```bash
 hermes plugins enable ai-memory
 ```
 
-### 4. Run setup wizard
+This registers the plugin with Hermes; it does **not** activate a memory provider. `plugins.enabled` is unrelated to memory-provider activation, and Hermes skips `exclusive` plugins in the general enabled-check.
+
+### 4. Activate the memory provider
 
 ```bash
 hermes memory setup
 ```
 
-Prompts for server URL, API key (optional), and workspace/project.
+The wizard sets `memory.provider: ai-memory` and prompts for server URL, API key (optional), and workspace/project. Leave the scope prompts blank to use directory routing.
 
 ### 5. Verify
 
 ```bash
 hermes ai-memory status
 # → ai-memory server: reachable
-#   Version:      2.4.1
+#   Version:      3.2.0
 #   Pages:        42
 #   Sessions:     7
 #   Observations: 318
@@ -106,18 +108,25 @@ hermes ai-memory config
 
 ### Project Isolation
 
-The provider writes to the resolved project. Reads remain global by default for compatibility; choose `search_scope=project` to restrict searches and recall to that project. `initialize()` resolves the scope in this order:
+The provider writes to the resolved project. Reads remain global by default for compatibility; choose `search_scope=project` to restrict searches and recall to that project.
 
-1. Explicit kwargs — `ai_memory_workspace`, `project`
-2. Explicit config — `workspace` / `project` in `$HERMES_HOME/ai-memory.json`, or `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`
-3. The nearest `.ai-memory.toml` at or above the session's working directory
-4. What Hermes reports — `agent_workspace`, then `agent_identity` as `hermes-{profile}` (defaults: `hermes` / `hermes-default`)
+`initialize()` resolves the session directory, then each scope field:
+
+1. **Session directory** — `AI_MEMORY_CWD`, then the Hermes `cwd` kwarg, then `agent.runtime_cwd.resolve_agent_cwd()`. It must be absolute and existing; an invalid `AI_MEMORY_CWD` fails closed, and there is no `os.getcwd()` fallback.
+2. **Scope** — precedence is **explicit > marker > derived**:
+   - Explicit: `ai_memory_workspace` / `project` kwargs, `workspace` / `project` in `$HERMES_HOME/ai-memory.json`, or `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`.
+   - Marker: the nearest `.ai-memory.toml` settings boundary at or above the session directory. A capture-only marker is transparent; the first marker declaring any other setting is the boundary.
+   - Derived: a marker that pins `workspace` but no `project` derives the project from the checkout's git remote (`upstream`, else `origin`), normalized to the hostless repository path, lowercased, with `/` written as `-` (project names never contain `/`), or `basename(cwd)` when there is no valid remote.
+
+Writes, mirroring, turn/session hooks and handoff consumption require both fields and authorize a `derived` project only when the workspace is `explicit` or `marker`. A project that is only the dataclass default (`hermes-default`), or a project derived with no explicit/marker workspace, stays read-only. An unusable directory also stays read-only. A repository needs **either** an `.ai-memory.toml` marker pinning `workspace` **or** an explicit `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT` pin before the plugin can write memory; without one it is intentionally read-only. The full provenance table is in the [README](../README.md#scope-resolution-and-provenance).
 
 For legacy-generated `hermes` / `hermes-default` pairs, see the deterministic [compatibility rule and explicit opt-out](../README.md#legacy-scope-defaults-and-explicit-overrides). New installers leave scope unset; leave setup scope prompts blank to use markers.
 
+**Migration (0.1.4).** A workspace-only `.ai-memory.toml` now resolves a project instead of failing closed. New memories for such a repository land in the git-remote-derived project (for example `acme-movvia`); pages previously written under `hermes` / `hermes-default` are no longer found by project-scoped recall, though they remain in ai-memory under the old project. Pin the old scope explicitly via `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`, `ai-memory.json`, or the initialization kwargs. `scope_diagnostics()` reports the resolved scope and its provenance.
+
 For a single profile with folder-based memory, set `search_scope` to `project` in `ai-memory.json` (or `AI_MEMORY_SEARCH_SCOPE`) and omit fixed workspace/project overrides. The nearest applicable marker above the absolute, existing session directory wins, including markers within monorepo applications.
 
-With no project marker and no configured project, writes and handoff consumption are blocked. Explicit default-project configuration is still supported. Project-mode recall with unknown scope returns no results rather than falling back to global search.
+With no project marker, no derivable project and no configured project, writes and handoff consumption are blocked. Explicit default-project configuration is still supported. Project-mode recall with unknown scope returns no results rather than falling back to global search.
 
 Folder changes inside an existing session do **not** re-resolve this provider's scope. Start a new provider/session initialized with the target folder; `/new` or `/reset` that only switches the ID does not change folder scope. No process-cwd fallback is used.
 
@@ -125,23 +134,23 @@ Folder changes inside an existing session do **not** re-resolve this provider's 
 
 ### Session Start (`initialize`)
 
-When a new conversation starts, the provider resolves the scope (above) and fetches the previous session's handoff once, so `system_prompt_block()` can surface it. Non-primary contexts (`agent_context` other than `primary`) skip that fetch — accepting a handoff is single-use.
+When a new conversation starts, the provider resolves the scope (above) and fetches the previous session's handoff once, so `system_prompt_block()` can surface it. The fetch has a 2.0s timeout. Non-primary contexts (`agent_context` other than `primary`) skip that fetch — accepting a handoff is single-use.
 
 ### Before Each Turn (`prefetch`)
 
 The agent calls `prefetch(query, session_id=...)` with the user's message. The provider:
 
-1. Consumes the cached hits `queue_prefetch` stored for that `(session_id, query)`, if any
+1. Consumes the newest queued recall for the same session and scope, even when the query text changed (Hermes queues with the completed turn's text and prefetches with the next turn's text); an exact-query entry is consumed first when present
 2. Otherwise searches the wiki with `GET /admin/search?q=<query>&limit=3`
 3. Returns one block per hit, labelled `title (path): snippet` — recall spans every project, so the block names where each fact came from
 
-`queue_prefetch(query, session_id=...)` runs the search on a daemon thread right after a turn, which is what makes the next turn's `prefetch` a cache read.
+Search calls time out after 5s, deliberately under Hermes' ~8s prefetch abandonment bound; a slower result would be discarded. `queue_prefetch(query, session_id=...)` runs the search on a tracked background worker right after a turn. The cache keeps the newest queued recall per session+scope plus an exact-query alias, which is what makes the next turn's `prefetch` a cache read.
 
 ### After Each Turn (`sync_turn`)
 
 After each user+assistant exchange:
 
-1. Spawns a daemon thread
+1. Spawns a background worker
 2. Sends `POST /hook?event=user-prompt-submit` with `{"session_id", "prompt"}` — the field ai-memory reads — plus the session's `cwd`
 3. Swallows errors (logged only)
 
@@ -149,9 +158,11 @@ After each user+assistant exchange:
 
 When the conversation ends:
 
-1. Spawns a daemon thread
+1. Spawns a background worker
 2. Sends `POST /hook?event=session-end` with the session id only — the server reads no body field on this event, and posting the transcript risked the 0.5s turn-hook timeout dropping the close
 3. Swallows errors (logged only)
+
+Hermes calls `on_session_end` and then immediately `shutdown_all()`, and its own drain cannot see provider threads, so `shutdown()` joins the tracked workers under a bounded 5s deadline.
 
 If a close is ever lost (server down at that moment), `ai-memory finalize-session --agent hermes` posts the same event afterwards.
 
@@ -159,7 +170,7 @@ If a close is ever lost (server down at that moment), `ai-memory finalize-sessio
 
 When Hermes writes to built-in `MEMORY.md` or `USER.md`:
 
-1. Mirrors the write to the ai-memory wiki via `POST /admin/write-page`
+1. Mirrors the write asynchronously on a background worker, so the caller's turn is not blocked
 2. Path: `hermes-memory/{target}.md`
 3. Tags: `hermes`, `mirror`
 4. `add` and `replace` are mirrored — a `replace` keeps the superseded entry in the page under `## Substituído`. `remove` is skipped: the wiki keeps the page history rather than a tombstone.
@@ -240,7 +251,7 @@ uv run mypy .
 
 ### Multiple Hermes Profiles
 
-Each profile gets its own ai-memory project:
+Each profile falls back to its own ai-memory project when no marker or configured scope resolves:
 
 ```bash
 # Profile "work"
@@ -251,6 +262,8 @@ hermes --profile work
 hermes --profile personal
 # → project: hermes-personal
 ```
+
+A repository marker or derived git-remote project takes precedence over this profile fallback; explicit config still wins over both.
 
 ### Disable Auto-Capture
 

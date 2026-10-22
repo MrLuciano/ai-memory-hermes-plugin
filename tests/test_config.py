@@ -254,6 +254,9 @@ def test_explicit_scope_keys_reports_only_operator_values(
 
 
 def test_marker_scope_reads_the_nearest_scope_marker(tmp_path: Path) -> None:
+    # tmp_path is outside the real $HOME, so make it a checkout: the walk stops
+    # at the checkout root, which is exactly this marker's directory.
+    (tmp_path / ".git").mkdir()
     (tmp_path / ".ai-memory.toml").write_text('workspace = "default"\nproject = "Caminhar"\n')
     nested = tmp_path / "app" / "src"
     nested.mkdir(parents=True)
@@ -262,6 +265,7 @@ def test_marker_scope_reads_the_nearest_scope_marker(tmp_path: Path) -> None:
 
 def test_marker_scope_skips_a_capture_only_marker(tmp_path: Path) -> None:
     """A marker with no scope key keeps the walk-up going, like the server's."""
+    (tmp_path / ".git").mkdir()
     (tmp_path / ".ai-memory.toml").write_text('project = "repo-project"\n')
     nested = tmp_path / "src"
     nested.mkdir()

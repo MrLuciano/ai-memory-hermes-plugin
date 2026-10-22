@@ -18,7 +18,12 @@ from config import AiMemoryConfig, marker_briefing  # noqa: E402
 
 log = logging.getLogger("ai-memory")
 
-SEARCH_TIMEOUT = 10.0
+# Hermes abandons an external provider prefetch after 8s
+# (agent/memory_manager.py:42 and :388-395), keeping the call running in the
+# background but discarding its result. A search that outlives that window is
+# therefore wasted, so stay comfortably under the host bound. Session end does
+# not share this budget; it keeps the longer SESSION_END_TIMEOUT below.
+SEARCH_TIMEOUT = 5.0
 HOOK_TIMEOUT = 0.5
 WRITE_TIMEOUT = 10.0
 # Handoff is fetched once, synchronously, on session start against a
@@ -110,14 +115,26 @@ class AiMemoryClient:
     ) -> list[dict[str, Any]]:
         """Full-text search the ai-memory wiki.
 
-        ai-memory 1.28.1 exposes ``GET /admin/search?q=&limit=``; the
-        ``POST /api/v1/search`` this used to call does not exist and 404s.
+        ``GET /admin/search?q=&limit=`` is the right route because it is
+        always mounted: the admin router is merged into every serving
+        surface (``serve.rs:1908``). The ``POST /api/v1/search`` route this
+        used to call does exist (``crates/ai-memory-web/src/routes/api.rs:
+        41-43``), but the ``/api/v1`` router is only mounted when the server
+        is started with ``--enable-api`` or ``--enable-web``
+        (``serve.rs:1873``), both off by default — so it 404s on a default
+        install, which is why we do not use it.
+
+        Contract re-verified against ai-memory 3.2.0 (3.x); the route and
+        response shape below are unchanged from 1.28.1.
 
         Scope is all-or-nothing. ai-memory resolves a project *within* a
         workspace, so a lone ``project=`` has no workspace to resolve
-        against and a lone ``workspace=`` silently widens the scope past
-        what the caller asked for. Passing neither searches globally,
-        across every project — which is what cross-agent recall needs.
+        against, and passing only one of the pair is rejected outright:
+        ``GET /admin/search`` answers HTTP 400 ``"workspace and project must
+        be provided together"``
+        (``crates/ai-memory-mcp/src/admin.rs:1775-1778``). Passing neither
+        searches globally, across every project — which is what cross-agent
+        recall needs.
         """
         params: dict[str, Any] = {"q": query, "limit": limit}
         if workspace and project:
@@ -140,20 +157,31 @@ class AiMemoryClient:
         tags: list[str] | None = None,
         tier: str | None = None,
         pinned: bool = False,
-        workspace: str | None = None,
-        project: str | None = None,
+        workspace: str = "",
+        project: str = "",
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"path": path, "body": body}
+        # ai-memory's ``WritePageAdminRequest`` declares ``workspace`` and
+        # ``project`` as required strings, not options
+        # (``crates/ai-memory-mcp/src/admin.rs:8342-8347``), so a missing
+        # field is an Axum JSON rejection (422). Always send both and fail
+        # here, where the message names the problem, rather than leaving the
+        # caller to decode a remote 422.
+        workspace = workspace or ""
+        project = project or ""
+        if not workspace.strip() or not project.strip():
+            raise ValueError("write_page requires both workspace and project")
+        payload: dict[str, Any] = {
+            "path": path,
+            "body": body,
+            "workspace": workspace,
+            "project": project,
+        }
         if tags:
             payload["tags"] = tags
         if tier:
             payload["tier"] = tier
         if pinned:
             payload["pinned"] = pinned
-        if workspace:
-            payload["workspace"] = workspace
-        if project:
-            payload["project"] = project
         r = self._request("POST", "/admin/write-page", json=payload, timeout=WRITE_TIMEOUT)
         r.raise_for_status()
         return r.json()
@@ -231,7 +259,8 @@ class AiMemoryClient:
         if r.status_code == 404:
             return None
         r.raise_for_status()
-        # ai-memory 1.28.1 returns the handoff as a markdown block, not a
-        # JSON envelope: r.json() raised here on every call.
+        # ai-memory 3.x (verified against 3.2.0) returns the handoff as a
+        # markdown block, not a JSON envelope: r.json() raised here on every
+        # call.
         text = (r.text or "").strip()
         return text or None

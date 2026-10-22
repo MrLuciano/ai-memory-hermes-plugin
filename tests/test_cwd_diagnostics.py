@@ -21,8 +21,10 @@ def test_missing_host_cwd_is_visible_without_network(
         provider.initialize("session", agent_workspace="hermes", agent_identity="default")
     diagnostics = provider.scope_diagnostics()
     assert diagnostics == {
-        "cwd_received": "", "cwd_normalized": "", "search_scope": "project",
-        "workspace": "hermes", "project": "hermes-default", "scope_known": False,
+        "cwd_received": "", "cwd_source": "", "cwd_normalized": "",
+        "search_scope": "project",
+        "workspace": "hermes", "project": "hermes-default",
+        "workspace_source": "", "project_source": "", "scope_known": False,
         "writes_allowed": False, "project_search_allowed": False,
     }
     assert "cwd_received=''" in caplog.text

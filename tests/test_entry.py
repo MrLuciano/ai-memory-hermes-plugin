@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -150,3 +152,50 @@ def test_register_loads_search_scope(
     register(ctx)
     provider = ctx.register_memory_provider.call_args.args[0]
     assert provider._config.search_scope == "project"
+
+
+def test_register_prefers_hermes_get_hermes_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hermes' resolver (context override → env → default) wins over raw env."""
+    from __init__ import register
+
+    context_home = tmp_path / "context-home"
+    context_home.mkdir()
+    (context_home / "ai-memory.json").write_text(
+        json.dumps({"server_url": "http://context-home:49374"})
+    )
+    fake = types.ModuleType("hermes_constants")
+    fake.get_hermes_home = lambda: context_home  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "hermes_constants", fake)
+    # A different env home must lose to the host's context override.
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "env-home"))
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+
+    ctx = MagicMock()
+    register(ctx)
+    provider = ctx.register_memory_provider.call_args.args[0]
+    assert provider._config.server_url == "http://context-home:49374"
+
+
+def test_register_falls_back_to_env_home_when_hermes_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plugin must still load standalone, without Hermes on sys.path."""
+    from __init__ import register
+
+    hermes_home = tmp_path / "env-home"
+    hermes_home.mkdir()
+    (hermes_home / "ai-memory.json").write_text(
+        json.dumps({"server_url": "http://env-home:49374"})
+    )
+    # An empty module makes ``from hermes_constants import get_hermes_home``
+    # raise ImportError, exercising the standalone fallback path.
+    monkeypatch.setitem(sys.modules, "hermes_constants", types.ModuleType("hermes_constants"))
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.delenv("AI_MEMORY_SERVER_URL", raising=False)
+
+    ctx = MagicMock()
+    register(ctx)
+    provider = ctx.register_memory_provider.call_args.args[0]
+    assert provider._config.server_url == "http://env-home:49374"

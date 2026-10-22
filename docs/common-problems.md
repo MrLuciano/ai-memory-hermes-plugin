@@ -96,12 +96,13 @@ ls "$HERMES_HOME/plugins/memory/ai-memory/" 2>/dev/null && echo "wrong path exis
 rm -rf "$HERMES_HOME/plugins/ai-memory"
 rm -rf "$HERMES_HOME/plugins/memory/ai-memory"  # if present
 bash scripts/install.sh
-hermes plugins enable ai-memory
+hermes plugins enable ai-memory   # load the plugin
+hermes memory setup               # activate it as the memory provider
 ```
 
 ### Provider shows as "none — built-in only"
 
-**Cause:** The plugin is installed but not active in Hermes. Hermes only adds an external memory provider when `memory.provider` is set to `ai-memory` in `config.yaml`.
+**Cause:** The plugin is loaded but not active in Hermes. `hermes plugins enable ai-memory` only makes the plugin available; it does not activate a memory provider. `plugins.enabled` is unrelated to memory-provider activation, and Hermes skips `exclusive` plugins in the general enabled-check. Hermes only adds an external memory provider when `memory.provider` is set to `ai-memory` in `config.yaml`.
 
 **Check:**
 ```bash
@@ -113,7 +114,7 @@ cat "$HERMES_HOME/config.yaml" | grep -A2 "memory:"
 
 **Fix:**
 ```bash
-hermes plugins enable ai-memory
+hermes memory setup
 # or manually set in $HERMES_HOME/config.yaml:
 # memory:
 #   provider: ai-memory
@@ -228,7 +229,8 @@ hermes plugins list | grep ai-memory
 # Symlink manually
 mkdir -p "$HERMES_HOME/plugins"
 ln -s "$PWD/plugins/memory/ai-memory" "$HERMES_HOME/plugins/ai-memory"
-hermes plugins enable ai-memory
+hermes plugins enable ai-memory   # load the plugin
+hermes memory setup               # activate it as the memory provider
 ```
 
 ### "No module named 'config'" / ImportError
@@ -257,11 +259,27 @@ curl "http://127.0.0.1:49374/admin/search?q=test"
 
 ### Sync Turn Hangs
 
-**Cause:** ai-memory server is slow or unreachable (sync_turn has a 0.5s timeout).
+**Cause:** ai-memory server is slow or unreachable (the turn hook has a 0.5s timeout).
 
 **Check:** Server health, network.
 
-**Note:** `sync_turn` runs on a daemon thread with error swallowing. If the server is slow, the thread may accumulate. The plugin caps at one thread per turn — no queue.
+**Note:** `sync_turn` runs on a tracked background worker with error swallowing, so it never blocks the turn. Workers prefer Hermes' context-aware spawner and fall back to a daemon thread; `shutdown()` joins them under a bounded 5s deadline.
+
+### Writes or project recall stopped after 0.1.4
+
+**Cause:** A workspace-only `.ai-memory.toml` now derives its project from the checkout's git remote (or `basename(cwd)`) instead of failing closed. New pages go to the derived project, so pages written earlier under `hermes` / `hermes-default` are no longer returned by project-scoped recall. They still exist in ai-memory under the old project.
+
+**Check:** Inspect the already initialized provider's `scope_diagnostics()`: `workspace`, `project`, `workspace_source`, `project_source`, `cwd_source`.
+
+**Fix:** To keep the old project, pin it explicitly with `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT`, `workspace`/`project` in `$HERMES_HOME/ai-memory.json`, or the initialization kwargs. Explicit values outrank marker and derivation.
+
+### Writes disabled although the directory has a marker
+
+**Cause:** Writes need both a non-empty workspace and project, and the project must be `explicit`/`marker`, or `derived` from an `explicit`/`marker` workspace. A project that is only the dataclass default (`hermes-default`), a derived project with no explicit/marker workspace, or an unusable directory stays read-only. Non-primary contexts (cron/subagent) never write.
+
+**Check:** From a normal session startup, read the INFO line containing `ai-memory scope:`, or inspect `scope_diagnostics()` on the initialized provider: `cwd_received`, `cwd_source`, `workspace`, `project`, `workspace_source`, `project_source`, `scope_known`, `writes_allowed`.
+
+**Fix:** Provide an absolute, existing session directory (`AI_MEMORY_CWD` overrides the Hermes `cwd` kwarg and `resolve_agent_cwd()`), or pin `workspace`/`project` explicitly. The plugin never falls back to `os.getcwd()`.
 
 ### Memory Not Mirroring
 
@@ -273,7 +291,13 @@ curl "http://127.0.0.1:49374/admin/search?q=test"
 
 **Cause:** Recall spans every project (that is what makes cross-agent recall work), so each injected hit is labelled `<title> (<path>): <snippet>`.
 
-If the hits belong to a project you did not expect, check the resolved scope: a `workspace`/`project` set in `ai-memory.json` or via `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT` wins over the checkout's `.ai-memory.toml`.
+If the hits belong to a project you did not expect, check the resolved scope: a `workspace`/`project` set in `ai-memory.json` or via `AI_MEMORY_WORKSPACE` / `AI_MEMORY_PROJECT` wins over the checkout's `.ai-memory.toml`, and a marker's pinned project wins over a git-remote-derived one. Use `scope_diagnostics()` to see the value and its provenance.
+
+### Recall misses pages after upgrading
+
+**Cause:** Project-scoped recall follows the resolved project. If a workspace-only marker now derives a different project than the one used before 0.1.4, older pages are still stored under the previous project but are no longer searched.
+
+**Fix:** Pin the old scope explicitly (see [Writes or project recall stopped after 0.1.4](#writes-or-project-recall-stopped-after-014)) or search globally (`search_scope=global`) to confirm the old pages still exist.
 
 ## Testing
 
@@ -288,7 +312,7 @@ uv run pytest --cov -v
 
 ### "Cannot schedule new futures" on Shutdown
 
-This is a known CPython shutdown race with daemon threads. ai-memory plugin uses daemon threads that may fire during interpreter teardown. The error is harmless (logged at debug level). Set `PYTHONWARNINGS=ignore` if it's noisy:
+This is a known CPython shutdown race with background threads. The plugin tracks its workers and joins them under a bounded 5s deadline in `shutdown()`, but a worker can still fire during interpreter teardown if that deadline expires or Hermes exits without calling `shutdown()`. The error is harmless (logged at debug level). Set `PYTHONWARNINGS=ignore` if it's noisy:
 
 ```bash
 export PYTHONWARNINGS=ignore
