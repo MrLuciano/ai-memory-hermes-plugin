@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- `Write-Err` in `install.ps1`, `update.ps1` and `uninstall.ps1` now prints its message. An extra pair of braces made it emit a script block, so every error showed the literal text `Write-Host "ERROR: $Msg" -ForegroundColor Red` instead of the error.
 - Unknown project scope blocks writes, lifecycle hooks, and handoff consumption; project-mode recall returns no results. Directory routing requires an absolute, existing session directory supplied by Hermes, and does not fall back to the process cwd.
 - Background operations capture their client and scope, and obsolete recall workers cannot populate the cache after reinitialization or a session switch.
 - New setup/install/update defaults omit fixed workspace/project overrides. In project mode, narrowly matched legacy-generated defaults allow directory routing, while `scope_origin=explicit` preserves an intentional fixed pair.

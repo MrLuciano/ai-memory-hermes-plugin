@@ -27,7 +27,7 @@ $RepoTarballUrl = if ($env:REPO_TARBALL_URL) { $env:REPO_TARBALL_URL } else { "h
 function Write-Info  { param([string]$Msg) Write-Host "  $Msg" -ForegroundColor Cyan }
 function Write-Ok    { param([string]$Msg) Write-Host "  OK: $Msg" -ForegroundColor Green }
 function Write-Warn  { param([string]$Msg) Write-Host "  WARNING: $Msg" -ForegroundColor Yellow }
-function Write-Err   { param([string]$Msg) { Write-Host "ERROR: $Msg" -ForegroundColor Red } }
+function Write-Err   { param([string]$Msg) Write-Host "ERROR: $Msg" -ForegroundColor Red }
 
 function Invoke-OrDryRun {
     param([scriptblock]$Action, [string]$Description)
