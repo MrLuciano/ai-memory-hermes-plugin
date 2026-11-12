@@ -1,4 +1,4 @@
-# update.ps1 — Update the ai-memory Hermes plugin on Windows
+﻿# update.ps1 — Update the ai-memory Hermes plugin on Windows
 #
 # Defaults to downloading the latest plugin from GitHub. Set $env:UPDATE_FROM_LOCAL=true
 # to update from a cloned repository instead (preserves the junction install).
@@ -28,6 +28,17 @@ function Write-Info  { param([string]$Msg) Write-Host "  $Msg" -ForegroundColor 
 function Write-Ok    { param([string]$Msg) Write-Host "  OK: $Msg" -ForegroundColor Green }
 function Write-Warn  { param([string]$Msg) Write-Host "  WARNING: $Msg" -ForegroundColor Yellow }
 function Write-Err   { param([string]$Msg) { Write-Host "ERROR: $Msg" -ForegroundColor Red } }
+
+# GitHub archives extract to a single folder named after the ref
+# (ai-memory-hermes-plugin-main, ai-memory-hermes-plugin-0.1.3, ...), so find
+# it instead of assuming the main branch. Falls back to the download dir,
+# which makes the source check below fail with its usual message.
+function Get-ArchiveRoot {
+    param([string]$Dir)
+    $roots = @(Get-ChildItem -LiteralPath $Dir -Directory -ErrorAction SilentlyContinue)
+    if ($roots.Count -eq 1) { return $roots[0].FullName }
+    return $Dir
+}
 
 function Invoke-OrDryRun {
     param([scriptblock]$Action, [string]$Description)
@@ -241,7 +252,7 @@ else {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($tarball, $downloadDir)
 
-        $pluginSrc = Join-Path $downloadDir "ai-memory-hermes-plugin-main\plugins\memory\ai-memory"
+        $pluginSrc = Join-Path (Get-ArchiveRoot $downloadDir) "plugins\memory\ai-memory"
         if (-not (Test-Path (Join-Path $pluginSrc "__init__.py"))) {
             Write-Err "downloaded plugin source not found at $pluginSrc"
             Remove-Item -Recurse -Force $downloadDir -ErrorAction SilentlyContinue
