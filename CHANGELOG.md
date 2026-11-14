@@ -33,6 +33,8 @@
 ### Fixed
 
 - `Write-Err` in `install.ps1`, `update.ps1` and `uninstall.ps1` now prints its message. An extra pair of braces made it emit a script block, so every error showed the literal text `Write-Host "ERROR: $Msg" -ForegroundColor Red` instead of the error.
+- `install.ps1` and `update.ps1` now locate the extracted archive's top-level folder instead of assuming `ai-memory-hermes-plugin-main`, so `REPO_TARBALL_URL` pointing at a release (e.g. `archive/refs/tags/v0.1.3.zip`) installs and updates on Windows, as it already did with the `.sh` scripts (#12).
+- `update.ps1` is saved as UTF-8 with BOM, like `install.ps1` since #3; Windows PowerShell 5.1 read it as ANSI and failed to parse it.
 - Unknown project scope blocks writes, lifecycle hooks, and handoff consumption; project-mode recall returns no results. Directory routing requires an absolute, existing session directory supplied by Hermes, and does not fall back to the process cwd.
 - Background operations capture their client and scope, and obsolete recall workers cannot populate the cache after reinitialization or a session switch.
 - New setup/install/update defaults omit fixed workspace/project overrides. In project mode, narrowly matched legacy-generated defaults allow directory routing, while `scope_origin=explicit` preserves an intentional fixed pair.
