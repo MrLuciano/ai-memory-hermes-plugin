@@ -34,6 +34,17 @@ function Write-Ok    { param([string]$Msg) Write-Host "  OK: $Msg" -ForegroundCo
 function Write-Warn  { param([string]$Msg) Write-Host "  WARNING: $Msg" -ForegroundColor Yellow }
 function Write-Err   { param([string]$Msg) { Write-Host "ERROR: $Msg" -ForegroundColor Red } }
 
+# GitHub archives extract to a single folder named after the ref
+# (ai-memory-hermes-plugin-main, ai-memory-hermes-plugin-0.1.3, ...), so find
+# it instead of assuming the main branch. Falls back to the download dir,
+# which makes the source check below fail with its usual message.
+function Get-ArchiveRoot {
+    param([string]$Dir)
+    $roots = @(Get-ChildItem -LiteralPath $Dir -Directory -ErrorAction SilentlyContinue)
+    if ($roots.Count -eq 1) { return $roots[0].FullName }
+    return $Dir
+}
+
 function Invoke-OrDryRun {
     param([scriptblock]$Action, [string]$Description)
     if ($Script:DoDryRun) {
@@ -160,7 +171,7 @@ if (-not (Test-Path (Join-Path $PluginSrc "__init__.py"))) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($Tarball, $DownloadDir)
     }
-    $PluginSrc = Join-Path $DownloadDir "ai-memory-hermes-plugin-main\plugins\memory\ai-memory"
+    $PluginSrc = Join-Path (Get-ArchiveRoot $DownloadDir) "plugins\memory\ai-memory"
 
     if (-not (Test-Path (Join-Path $PluginSrc "__init__.py"))) {
         Write-Err "downloaded plugin source not found at $PluginSrc"
